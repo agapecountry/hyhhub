@@ -801,6 +801,7 @@ export default function AccountsPage() {
                               handleRefreshAccounts(account.plaid_item_id);
                             }}
                             disabled={loading}
+                            title="Refresh Account Balances"
                           >
                             <RefreshCw className="h-4 w-4" />
                           </Button>

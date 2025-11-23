@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ArrowLeft, Plus, Download, Trash2, CreditCard as Edit2, Link2, RefreshCw, Users, Check, X, Filter } from 'lucide-react';
 import { ManagePayeesDialog } from '@/components/manage-payees-dialog';
+import { PlaidSyncButton } from '@/components/plaid-sync-button';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
@@ -263,8 +264,9 @@ export default function AccountDetailPage() {
         .eq('household_id', currentHousehold.id)
         .single();
 
-      // If not found in manual accounts, try plaid_accounts
-      if (accountError && accountError.code === 'PGRST116') {
+      // If not found in manual accounts or RLS blocked, try plaid_accounts
+      // PGRST116 = not found, PGRST301 = RLS policy violation (406)
+      if (accountError && (accountError.code === 'PGRST116' || accountError.code === 'PGRST301' || accountError.code === '406')) {
         const { data: plaidData, error: plaidError } = await supabase
           .from('plaid_accounts')
           .select('*')
@@ -273,24 +275,82 @@ export default function AccountDetailPage() {
           .single();
 
         if (plaidError) throw plaidError;
-        accountData = plaidData;
+        
+        // Map plaid_accounts fields to match Account interface
+        accountData = {
+          ...plaidData,
+          balance: plaidData.current_balance || 0,
+          institution: plaidData.name,
+        };
       } else if (accountError) {
         throw accountError;
       }
 
       setAccount(accountData);
 
-      // Load transactions
-      const { data: transactionsData, error: transactionsError } = await supabase
+      // Load transactions - check both transactions table (manual) and plaid_transactions table
+      let allTransactions: any[] = [];
+
+      // Load from transactions table (manual entries)
+      const { data: manualTransactions, error: manualError } = await supabase
         .from('transactions')
         .select('*')
         .eq('account_id', accountId)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false });
 
-      if (transactionsError) throw transactionsError;
+      if (!manualError && manualTransactions) {
+        allTransactions = [...manualTransactions];
+      }
 
-      setTransactions(transactionsData || []);
+      // If this is a Plaid account, also load from plaid_transactions
+      if (accountData.plaid_item_id) {
+        const { data: plaidAccountData } = await supabase
+          .from('plaid_accounts')
+          .select('id')
+          .eq('id', accountId)
+          .single();
+
+        if (plaidAccountData) {
+          const { data: plaidTransactions, error: plaidError } = await supabase
+            .from('plaid_transactions')
+            .select('*')
+            .eq('plaid_account_id', plaidAccountData.id)
+            .order('date', { ascending: false })
+            .order('created_at', { ascending: false });
+
+          if (!plaidError && plaidTransactions) {
+            // Map plaid_transactions to match Transaction interface
+            const mappedPlaidTransactions = plaidTransactions.map(t => ({
+              id: t.id,
+              date: t.date,
+              description: t.name,
+              amount: -t.amount, // Plaid uses positive for debits, we use negative
+              category_id: null,
+              notes: t.merchant_name || null,
+              is_pending: t.pending,
+              is_cleared: !t.pending,
+              plaid_transaction_id: t.transaction_id,
+              debt_id: null,
+              payee_id: null,
+              recurring_transaction_id: null,
+              created_at: t.created_at,
+              account_id: accountId,
+            }));
+            
+            allTransactions = [...allTransactions, ...mappedPlaidTransactions];
+          }
+        }
+      }
+
+      // Sort all transactions by date
+      allTransactions.sort((a, b) => {
+        const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (dateCompare !== 0) return dateCompare;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+
+      setTransactions(allTransactions);
     } catch (error: any) {
       console.error('Error loading account data:', error);
       toast({
@@ -570,11 +630,9 @@ export default function AccountDetailPage() {
     }
   };
 
-  const handleSyncPlaid = async () => {
-    toast({
-      title: 'Coming Soon',
-      description: 'Plaid transaction sync will be implemented next.',
-    });
+  const handleSyncPlaidSuccess = () => {
+    // Reload account data to get new transactions
+    loadAccountData();
   };
 
   const handleExportTransactions = () => {
@@ -671,15 +729,25 @@ export default function AccountDetailPage() {
     }
   };
 
+  if (loading || !account) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-96">
+          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   const filteredTransactions = filterUncleared
     ? transactions.filter(t => !t.is_cleared)
     : transactions;
 
-  const clearedBalance = account.balance - transactions
+  const clearedBalance = (account.balance || 0) - transactions
     .filter(t => !t.is_cleared)
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const workingBalance = account.balance;
+  const workingBalance = account.balance || 0;
 
   const runningBalance = [...filteredTransactions].reverse().reduce((acc, transaction, index) => {
     const balance = index === 0 ? (account.balance - filteredTransactions.reduce((sum, t) => sum + t.amount, 0) + transaction.amount) : acc[index - 1].balance + transaction.amount;
@@ -713,12 +781,13 @@ export default function AccountDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isPlaidAccount ? (
-              <Button onClick={handleSyncPlaid}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Sync Transactions
-              </Button>
-            ) : (
+            {isPlaidAccount && account.plaid_item_id && (
+              <PlaidSyncButton
+                plaidItemId={account.plaid_item_id}
+                onSuccess={handleSyncPlaidSuccess}
+              />
+            )}
+            {!isPlaidAccount && (
               <Dialog open={addDialogOpen} onOpenChange={(open) => {
                 setAddDialogOpen(open);
                 if (!open) resetTransactionForm();
