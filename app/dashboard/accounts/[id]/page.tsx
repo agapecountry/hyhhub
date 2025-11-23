@@ -44,9 +44,12 @@ interface Transaction {
   is_cleared: boolean;
   plaid_transaction_id: string | null;
   debt_id: string | null;
+  bill_id?: string | null;
   payee_id: string | null;
   recurring_transaction_id: string | null;
   created_at: string;
+  auto_matched?: boolean;
+  match_confidence?: 'high' | 'medium' | 'low' | null;
 }
 
 
@@ -326,16 +329,18 @@ export default function AccountDetailPage() {
               date: t.date,
               description: t.name,
               amount: -t.amount, // Plaid uses positive for debits, we use negative
-              category_id: null,
-              notes: t.merchant_name || null,
+              category_id: t.category_id || null,
+              notes: t.notes || t.merchant_name || null,
               is_pending: t.pending,
-              is_cleared: !t.pending,
+              is_cleared: false,
               plaid_transaction_id: t.transaction_id,
-              debt_id: null,
+              debt_id: t.debt_id || null,
+              bill_id: t.bill_id || null,
               payee_id: null,
               recurring_transaction_id: null,
               created_at: t.created_at,
-              account_id: accountId,
+              auto_matched: t.auto_matched || false,
+              match_confidence: t.match_confidence || null,
             }));
             
             allTransactions = [...allTransactions, ...mappedPlaidTransactions];
@@ -455,34 +460,65 @@ export default function AccountDetailPage() {
 
       const categoryId = transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null;
 
-      const { error } = await supabase
-        .from('transactions')
-        .update({
-          date: transactionForm.date,
-          description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
-          amount: amount,
-          category_id: categoryId,
-          notes: transactionForm.notes || null,
-          is_pending: transactionForm.is_pending,
-          debt_id: transactionForm.debt_id || null,
-          payee_id: transactionForm.payee_id || null,
-        })
-        .eq('id', editingTransaction.id);
+      // Check if this is a Plaid transaction
+      const isPlaidTransaction = !!editingTransaction.plaid_transaction_id;
 
-      if (error) throw error;
+      if (isPlaidTransaction) {
+        // Update plaid_transactions table and mark as user_modified
+        const updatedName = transactionForm.payee_id 
+          ? payees.find(p => p.id === transactionForm.payee_id)?.name || editingTransaction.description
+          : editingTransaction.description;
+        
+        const { error } = await supabase
+          .from('plaid_transactions')
+          .update({
+            date: transactionForm.date,
+            name: updatedName,
+            amount: amount,
+            notes: transactionForm.notes || null,
+            pending: transactionForm.is_pending,
+            user_modified: true,
+            user_modified_at: new Date().toISOString(),
+          })
+          .eq('id', editingTransaction.id);
 
-      // Update account balance
-      const newBalance = (account?.balance || 0) + amountDifference;
-      const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
-      await supabase
-        .from(table)
-        .update({ balance: newBalance })
-        .eq('id', accountId);
+        if (error) throw error;
 
-      toast({
-        title: 'Success',
-        description: 'Transaction updated successfully',
-      });
+        toast({
+          title: 'Success',
+          description: 'Plaid transaction updated. Your changes will be preserved during syncs.',
+        });
+      } else {
+        // Update regular transactions table
+        const { error } = await supabase
+          .from('transactions')
+          .update({
+            date: transactionForm.date,
+            description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
+            amount: amount,
+            category_id: categoryId,
+            notes: transactionForm.notes || null,
+            is_pending: transactionForm.is_pending,
+            debt_id: transactionForm.debt_id || null,
+            payee_id: transactionForm.payee_id || null,
+          })
+          .eq('id', editingTransaction.id);
+
+        if (error) throw error;
+
+        // Update account balance for manual transactions only
+        const newBalance = (account?.balance || 0) + amountDifference;
+        const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
+        await supabase
+          .from(table)
+          .update({ balance: newBalance })
+          .eq('id', accountId);
+
+        toast({
+          title: 'Success',
+          description: 'Transaction updated successfully',
+        });
+      }
 
       setEditingTransaction(null);
       setTransactionForm({
@@ -1187,7 +1223,7 @@ export default function AccountDetailPage() {
                             onClick={() => toggleCleared(transaction.id, transaction.is_cleared)}
                             className="h-8 w-8 p-0"
                             disabled={!!transaction.plaid_transaction_id}
-                            title={transaction.is_cleared ? 'Mark as uncleared' : 'Mark as cleared'}
+                            title={transaction.plaid_transaction_id ? 'Cannot mark Plaid transactions' : (transaction.is_cleared ? 'Mark as uncleared' : 'Mark as cleared')}
                           >
                             {transaction.is_cleared ? (
                               <Check className="h-5 w-5 text-green-600" />
@@ -1206,12 +1242,30 @@ export default function AccountDetailPage() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <div
-                              className="font-medium cursor-pointer hover:text-primary transition-colors"
-                              onClick={() => !transaction.plaid_transaction_id && openEditDialog(transaction)}
-                              title={!transaction.plaid_transaction_id ? "Click to edit" : "Plaid transactions cannot be edited"}
-                            >
-                              {transaction.description}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div
+                                className="font-medium cursor-pointer hover:text-primary transition-colors"
+                                onClick={() => openEditDialog(transaction)}
+                                title="Click to edit"
+                              >
+                                {transaction.description}
+                              </div>
+                              {transaction.plaid_transaction_id && (
+                                <Badge variant="outline" className="text-xs">Plaid</Badge>
+                              )}
+                              {transaction.auto_matched && transaction.match_confidence && (
+                                <Badge 
+                                  variant="secondary" 
+                                  className={`text-xs ${
+                                    transaction.match_confidence === 'high' ? 'bg-green-100 text-green-800' :
+                                    transaction.match_confidence === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-blue-100 text-blue-800'
+                                  }`}
+                                  title="Auto-matched transaction"
+                                >
+                                  ✓ {transaction.match_confidence}
+                                </Badge>
+                              )}
                             </div>
                             {transaction.notes && (
                               <div className="text-xs text-muted-foreground">{transaction.notes}</div>
@@ -1247,15 +1301,15 @@ export default function AccountDetailPage() {
                           ${transaction.balance.toFixed(2)}
                         </TableCell>
                         <TableCell>
-                          {!transaction.plaid_transaction_id && (
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditDialog(transaction)}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditDialog(transaction)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            {!transaction.plaid_transaction_id && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1263,11 +1317,12 @@ export default function AccountDetailPage() {
                                   setTransactionToDelete(transaction);
                                   setDeleteDialogOpen(true);
                                 }}
+                                className="text-destructive"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
