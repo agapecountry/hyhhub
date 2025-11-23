@@ -62,40 +62,69 @@ serve(async (req) => {
 
     const plaidClient = new PlaidApi(plaidConfig);
 
-    console.log('Fetching transactions from Plaid using sync...');
-    console.log('Current cursor:', plaidItem.transactions_cursor || 'none (initial sync)');
+    console.log('Current cursor:', plaidItem.transactions_cursor || 'none (will do initial fetch)');
     
-    // Use transactions/sync for incremental updates
+    let transactions: any[] = [];
     let cursor = plaidItem.transactions_cursor || '';
-    let hasMore = true;
-    const allTransactions: any[] = [];
     const addedTransactions: any[] = [];
     const modifiedTransactions: any[] = [];
     const removedTransactionIds: string[] = [];
 
-    // Fetch all updates using pagination
-    while (hasMore) {
+    // If no cursor exists, this is the first sync - use transactions/get for historical data
+    if (!plaidItem.transactions_cursor) {
+      console.log('First sync detected - fetching historical transactions...');
+      
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 730); // 2 years back
+      const endDate = new Date();
+      
+      const transactionsResponse = await plaidClient.transactionsGet({
+        access_token: plaidItem.access_token,
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0],
+        options: {
+          count: 500,
+          offset: 0,
+        },
+      });
+      
+      transactions = transactionsResponse.data.transactions;
+      console.log(`Initial fetch: ${transactions.length} transactions`);
+      
+      // Now sync to get the cursor for future incremental updates
       const syncResponse = await plaidClient.transactionsSync({
         access_token: plaidItem.access_token,
-        cursor: cursor,
+        cursor: '',
       });
+      cursor = syncResponse.data.next_cursor;
+      console.log('Initialized cursor for future syncs');
+      
+    } else {
+      // Use transactions/sync for incremental updates
+      console.log('Incremental sync using cursor...');
+      let hasMore = true;
 
-      const data = syncResponse.data;
-      
-      // Collect all transaction changes
-      addedTransactions.push(...data.added);
-      modifiedTransactions.push(...data.modified);
-      removedTransactionIds.push(...data.removed.map((r: any) => r.transaction_id));
-      
-      hasMore = data.has_more;
-      cursor = data.next_cursor;
-      
-      console.log(`Sync batch: ${data.added.length} added, ${data.modified.length} modified, ${data.removed.length} removed`);
+      while (hasMore) {
+        const syncResponse = await plaidClient.transactionsSync({
+          access_token: plaidItem.access_token,
+          cursor: cursor,
+        });
+
+        const data = syncResponse.data;
+        
+        addedTransactions.push(...data.added);
+        modifiedTransactions.push(...data.modified);
+        removedTransactionIds.push(...data.removed.map((r: any) => r.transaction_id));
+        
+        hasMore = data.has_more;
+        cursor = data.next_cursor;
+        
+        console.log(`Sync batch: ${data.added.length} added, ${data.modified.length} modified, ${data.removed.length} removed`);
+      }
+
+      console.log(`Total from sync: ${addedTransactions.length} added, ${modifiedTransactions.length} modified, ${removedTransactionIds.length} removed`);
+      transactions = [...addedTransactions, ...modifiedTransactions];
     }
-
-    console.log(`Total from sync: ${addedTransactions.length} added, ${modifiedTransactions.length} modified, ${removedTransactionIds.length} removed`);
-    
-    const transactions = [...addedTransactions, ...modifiedTransactions];
 
     // Get all plaid_accounts for this item
     const { data: plaidAccounts, error: accountsError } = await supabaseClient
@@ -220,21 +249,28 @@ serve(async (req) => {
       }
 
       // If no match yet, try to auto-categorize based on Plaid categories
-      if (!categoryId && categories && categories.length > 0 && transaction.category && transaction.category.length > 0) {
-        const plaidCategory = transaction.category[0]?.toLowerCase() || '';
+      if (!categoryId && categories && categories.length > 0 && transaction.personal_finance_category) {
+        const plaidPrimary = transaction.personal_finance_category.primary?.toLowerCase() || '';
+        const plaidDetailed = transaction.personal_finance_category.detailed?.toLowerCase() || '';
+        console.log(`Trying to categorize "${txName}" with Plaid category: ${plaidPrimary} / ${plaidDetailed}`);
         
-        // Map common Plaid categories to our categories
+        // Map Plaid personal_finance_category to our categories
         const categoryMappings: Record<string, string[]> = {
-          'food and drink': ['food', 'dining', 'restaurant', 'groceries'],
-          'travel': ['travel', 'transportation', 'gas', 'fuel'],
-          'shops': ['shopping', 'retail'],
-          'recreation': ['entertainment', 'fun', 'leisure'],
-          'service': ['utilities', 'services'],
-          'healthcare': ['health', 'medical'],
+          'food_and_drink': ['food', 'dining', 'restaurant', 'groceries', 'grocery'],
+          'transportation': ['travel', 'transportation', 'gas', 'fuel'],
+          'general_merchandise': ['shopping', 'retail'],
+          'entertainment': ['entertainment', 'fun', 'leisure'],
+          'general_services': ['utilities', 'services', 'utility'],
+          'medical': ['health', 'medical', 'healthcare'],
+          'home_improvement': ['home improvement', 'home', 'improvement'],
+          'personal_care': ['personal care', 'care'],
+          'rent_and_utilities': ['rent', 'utilities', 'utility', 'mortgage'],
         };
 
+        // Try to match using primary category
         for (const [plaidCat, keywords] of Object.entries(categoryMappings)) {
-          if (plaidCategory.includes(plaidCat)) {
+          if (plaidPrimary.includes(plaidCat) || plaidDetailed.includes(plaidCat)) {
+            console.log(`Plaid category "${plaidPrimary}" matches pattern "${plaidCat}", looking for keywords:`, keywords);
             const matchedCat = categories.find(c => 
               keywords.some(kw => c.name.toLowerCase().includes(kw))
             );
@@ -242,15 +278,27 @@ serve(async (req) => {
               categoryId = matchedCat.id;
               autoMatched = true;
               matchConfidence = matchConfidence || 'low';
-              console.log(`Auto-categorized "${txName}" to "${matchedCat.name}" based on Plaid category`);
+              console.log(`✅ Auto-categorized "${txName}" to "${matchedCat.name}" based on Plaid category "${plaidPrimary}"`);
               break;
             }
           }
         }
+        
+        if (!categoryId) {
+          console.log(`⚠️ Could not categorize "${txName}" - Plaid category "${plaidPrimary}" didn't match any patterns`);
+        }
+      } else if (!categoryId) {
+        console.log(`⚠️ Skipping categorization for "${txName}" - categories:${categories?.length}, has personal_finance_category:${!!transaction.personal_finance_category}`);
       }
 
       return { billId, debtId, categoryId, autoMatched, matchConfidence };
     };
+
+    // Debug: Log first transaction to see available fields
+    if (transactions.length > 0) {
+      console.log('Sample transaction fields:', Object.keys(transactions[0]));
+      console.log('Sample transaction category data:', transactions[0].category, transactions[0].personal_finance_category);
+    }
 
     // Prepare transactions for insert, filtering out user-modified ones and adding auto-match data
     const transactionsToInsert = transactions
