@@ -1,0 +1,56 @@
+{
+  "name": "Handle Your House",
+  "short_name": "HYH",
+  "description": "Complete household management - budgets, meals, chores, calendars, and more",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f5f1e8",
+  "theme_color": "#178b9c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/HYHIcon-new.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/HYHIcon-new.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "lifestyle", "finance"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "description": "View your dashboard",
+      "url": "/dashboard",
+      "icons": []
+    },
+    {
+      "name": "Budget",
+      "short_name": "Budget",
+      "description": "Manage your budget",
+      "url": "/dashboard/budget",
+      "icons": []
+    },
+    {
+      "name": "Meal Planning",
+      "short_name": "Meals",
+      "description": "Plan your meals",
+      "url": "/dashboard/meals",
+      "icons": []
+    },
+    {
+      "name": "Calendar",
+      "short_name": "Calendar",
+      "description": "View your calendar",
+      "url": "/dashboard/calendar",
+      "icons": []
+    }
+  ]
+}
