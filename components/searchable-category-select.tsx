@@ -21,7 +21,7 @@ import {
 interface Category {
   id: string;
   name: string;
-  icon?: string;
+  icon?: string | null;
 }
 
 interface SearchableCategorySelectProps {
