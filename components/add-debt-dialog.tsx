@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { SearchableCategorySelect } from '@/components/searchable-category-select';
 
 interface Debt {
   id: string;
@@ -24,6 +25,13 @@ interface Debt {
   lender: string | null;
   account_number_last4: string | null;
   exclude_from_payoff: boolean;
+  category_id: string | null;
+}
+
+interface TransactionCategory {
+  id: string;
+  name: string;
+  icon?: string;
 }
 
 interface AddDebtDialogProps {
@@ -37,6 +45,7 @@ interface AddDebtDialogProps {
 export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, editingDebt }: AddDebtDialogProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<TransactionCategory[]>([]);
   const [form, setForm] = useState({
     name: '',
     type: 'other',
@@ -50,9 +59,13 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
     lender: '',
     account_number_last4: '',
     exclude_from_payoff: false,
+    category_id: '',
   });
 
   useEffect(() => {
+    if (open && householdId) {
+      loadCategories();
+    }
     if (editingDebt) {
       setForm({
         name: editingDebt.name,
@@ -67,6 +80,7 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
         lender: editingDebt.lender || '',
         account_number_last4: editingDebt.account_number_last4 || '',
         exclude_from_payoff: editingDebt.exclude_from_payoff || false,
+        category_id: editingDebt.category_id || '',
       });
     } else {
       setForm({
@@ -82,9 +96,20 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
         lender: '',
         account_number_last4: '',
         exclude_from_payoff: false,
+        category_id: '',
       });
     }
-  }, [editingDebt, open]);
+  }, [editingDebt, open, householdId]);
+
+  const loadCategories = async () => {
+    const { data } = await supabase
+      .from('transaction_categories')
+      .select('*')
+      .eq('household_id', householdId)
+      .eq('type', 'expense')
+      .order('name');
+    setCategories(data || []);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,6 +142,7 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
         account_number_last4: form.account_number_last4 || null,
         is_active: true,
         exclude_from_payoff: form.exclude_from_payoff,
+        category_id: form.category_id || null,
       };
 
       let error;
@@ -151,6 +177,7 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
         lender: '',
         account_number_last4: '',
         exclude_from_payoff: false,
+        category_id: '',
       });
 
       onOpenChange(false);
@@ -188,24 +215,27 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
           </div>
 
           <div>
-            <Label htmlFor="type">Type</Label>
-            <Select value={form.type} onValueChange={(value) => setForm({ ...form, type: value })}>
-              <SelectTrigger id="type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mortgage">Mortgage</SelectItem>
-                <SelectItem value="auto">Auto Loan</SelectItem>
-                <SelectItem value="student">Student Loan</SelectItem>
-                <SelectItem value="credit_card">Credit Card</SelectItem>
-                <SelectItem value="personal">Personal Loan</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="category">Category</Label>
+            <SearchableCategorySelect
+              categories={categories}
+              value={form.category_id || 'none'}
+              onValueChange={(value) => {
+                if (value === 'none') {
+                  setForm({ ...form, category_id: '' });
+                } else {
+                  setForm({ ...form, category_id: value });
+                }
+              }}
+              placeholder="Select a category"
+              allowNone={true}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Helps categorize debt payments in your budget
+            </p>
           </div>
 
           <div>
-            <Label htmlFor="original_balance">Original Loan Amount *</Label>
+            <Label htmlFor="original_balance">Original Loan/Credit Limit *</Label>
             <Input
               id="original_balance"
               type="number"
@@ -217,7 +247,7 @@ export function AddDebtDialog({ open, onOpenChange, householdId, onSuccess, edit
               required
             />
             <p className="text-xs text-muted-foreground mt-1">
-              The starting balance when the loan was first taken out
+              The starting balance when the loan was first taken out or credit card limit
             </p>
           </div>
 

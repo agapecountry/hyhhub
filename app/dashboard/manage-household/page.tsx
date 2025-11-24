@@ -235,6 +235,16 @@ export default function ManageHouseholdPage() {
   const handleCreateInvite = async () => {
     if (!currentHousehold) return;
 
+    // Check if user has reached account member limit
+    if (accountMemberCount >= accountMemberLimit) {
+      toast({
+        title: 'Member Limit Reached',
+        description: 'You have reached your account member limit. Upgrade your subscription to add more members.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -247,7 +257,13 @@ export default function ManageHouseholdPage() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Check for RLS policy violation and provide friendly message
+        if (error.code === '42501' || error.message.includes('row-level security')) {
+          throw new Error('You have reached your account member limit. Upgrade your subscription to add more members.');
+        }
+        throw error;
+      }
 
       const inviteUrl = `${window.location.origin}/invite?code=${data.invite_code}`;
 
@@ -763,7 +779,7 @@ export default function ManageHouseholdPage() {
                 )}
 
                 {accountMemberCount >= accountMemberLimit && (
-                  <p className="mt-2 text-xs text-amber-600 font-medium">
+                  <p className="mt-2 text-xs text-amber-700 font-medium">
                     Upgrade your subscription to add more account members
                   </p>
                 )}

@@ -203,10 +203,10 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-600" />
+              <DollarSign className="h-4 w-4 text-emerald-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">${budgetData.totalIncome.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-emerald-600">${budgetData.totalIncome.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground mt-1">per month</p>
             </CardContent>
           </Card>
@@ -214,27 +214,27 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-600" />
+              <TrendingDown className="h-4 w-4 text-rose-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">${budgetData.totalExpenses.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-rose-600">${budgetData.totalExpenses.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Debts + Bills + Household
               </p>
             </CardContent>
           </Card>
 
-          <Card className={budgetData.netIncome >= 0 ? 'border-green-200' : 'border-red-200'}>
+          <Card className={budgetData.netIncome >= 0 ? 'border-emerald-200' : 'border-rose-200'}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Net Income</CardTitle>
               {budgetData.netIncome >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-green-600" />
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
               ) : (
-                <TrendingDown className="h-4 w-4 text-red-600" />
+                <TrendingDown className="h-4 w-4 text-rose-600" />
               )}
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${budgetData.netIncome >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`text-2xl font-bold ${budgetData.netIncome >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                 ${Math.abs(budgetData.netIncome).toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
@@ -263,7 +263,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-green-600" />
+                <DollarSign className="h-5 w-5 text-emerald-600" />
                 Income
               </CardTitle>
               <CardDescription>Total: ${budgetData.totalIncome.toFixed(2)}</CardDescription>
@@ -274,12 +274,12 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
               ) : (
                 <div className="space-y-3">
                   {budgetData.incomeItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                    <div key={index} className="flex items-center justify-between p-3 bg-emerald-50/50 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-green-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-emerald-600">${item.amount.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
@@ -290,7 +290,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5 text-red-600" />
+                <CreditCard className="h-5 w-5 text-rose-600" />
                 Debts
               </CardTitle>
               <CardDescription>Total: ${budgetData.totalDebts.toFixed(2)}</CardDescription>
@@ -301,12 +301,12 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
               ) : (
                 <div className="space-y-3">
                   {budgetData.debtItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                    <div key={index} className="flex items-center justify-between p-3 bg-rose-50/50 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-red-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-rose-600">${item.amount.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
@@ -317,7 +317,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Receipt className="h-5 w-5 text-orange-600" />
+                <Receipt className="h-5 w-5 text-amber-700" />
                 Bills
               </CardTitle>
               <CardDescription>Total: ${budgetData.totalBills.toFixed(2)}</CardDescription>
@@ -328,12 +328,12 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
               ) : (
                 <div className="space-y-3">
                   {budgetData.billItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
+                    <div key={index} className="flex items-center justify-between p-3 bg-amber-50/50 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-orange-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-amber-700">${item.amount.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>

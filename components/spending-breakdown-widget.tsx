@@ -511,7 +511,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="amount" radius={[8, 8, 0, 0]} cursor="pointer">
                 {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
+                  <Cell key={`cell-${index}`} fill={entry.color} fillOpacity={0.75} />
                 ))}
               </Bar>
             </BarChart>

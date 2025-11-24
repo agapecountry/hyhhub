@@ -21,6 +21,9 @@ import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import type { TransactionCategory as ImportedTransactionCategory } from '@/lib/types';
+import { SearchableCategorySelect } from '@/components/searchable-category-select';
+import { IconPicker } from '@/components/icon-picker';
+import { SearchablePayeeSelect } from '@/components/searchable-payee-select';
 
 interface Account {
   id: string;
@@ -105,6 +108,7 @@ export default function AccountDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
   const [filterUncleared, setFilterUncleared] = useState(false);
+  const [newPayeeName, setNewPayeeName] = useState('');
 
   const accountId = params.id as string;
   const isPlaidAccount = account?.plaid_item_id != null;
@@ -181,6 +185,12 @@ export default function AccountDetailPage() {
     } catch (error: any) {
       console.error('Error loading payees:', error);
     }
+  };
+
+  const handleAddPayee = (prefilledName?: string) => {
+    // Open ManagePayeesDialog with or without a prefilled name
+    setNewPayeeName(prefilledName || '');
+    setManagePayeesOpen(true);
   };
 
   const loadCategories = async () => {
@@ -857,7 +867,8 @@ export default function AccountDetailPage() {
                       <div>
                         <Label htmlFor="payee">Payer/Payee</Label>
                         <div className="flex gap-2">
-                          <Select
+                          <SearchablePayeeSelect
+                            payees={payees}
                             value={transactionForm.payee_id || 'none'}
                             onValueChange={(value) => {
                               if (value === 'none') {
@@ -866,32 +877,15 @@ export default function AccountDetailPage() {
                                 handlePayeeChange(value);
                               }
                             }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a payee" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {payees.map((payee) => (
-                                <SelectItem key={payee.id} value={payee.id}>
-                                  <span className="flex items-center gap-2">
-                                    {payee.debt_id && payee.debt_name ? payee.debt_name : payee.name}
-                                    {payee.debt_id && (
-                                      <Badge variant="outline" className="text-xs">Debt</Badge>
-                                    )}
-                                    {payee.bill_id && (
-                                      <Badge variant="outline" className="text-xs">Bill</Badge>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            onAddNew={(name) => handleAddPayee(name)}
+                            placeholder="Select or type payee..."
+                            allowNone={true}
+                          />
                           <Button
                             type="button"
                             variant="outline"
                             size="icon"
-                            onClick={() => setManagePayeesOpen(true)}
+                            onClick={() => handleAddPayee()}
                             title="Manage Payees"
                           >
                             <Users className="h-4 w-4" />
@@ -936,15 +930,13 @@ export default function AccountDetailPage() {
                           <div className="space-y-2">
                             <div className="flex gap-2">
                               <Input
-                                placeholder="New category name"
+                                placeholder="Category name"
                                 value={newCategoryName}
                                 onChange={(e) => setNewCategoryName(e.target.value)}
                               />
-                              <Input
-                                placeholder="Icon"
+                              <IconPicker
                                 value={newCategoryIcon}
-                                onChange={(e) => setNewCategoryIcon(e.target.value)}
-                                className="w-20"
+                                onValueChange={setNewCategoryIcon}
                               />
                             </div>
                             <div className="flex gap-2">
@@ -993,7 +985,8 @@ export default function AccountDetailPage() {
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            <Select
+                            <SearchableCategorySelect
+                              categories={categories}
                               value={transactionForm.category || 'none'}
                               onValueChange={(value) => {
                                 console.log('Category select changed:', value);
@@ -1003,34 +996,13 @@ export default function AccountDetailPage() {
                                   setTransactionForm({ ...transactionForm, category: value });
                                 }
                               }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a category" />
-                              </SelectTrigger>
-                              <SelectContent className="z-[100] max-h-[300px]">
-                                <SelectItem value="none">None</SelectItem>
-                                {categories.map((cat) => (
-                                  <SelectItem key={cat.id} value={cat.id}>
-                                    {cat.icon && `${cat.icon} `}{cat.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                              placeholder="Select a category"
+                              onAddNew={() => {
                                 console.log('Add new category button clicked');
                                 setShowAddCategory(true);
                               }}
-                              className="w-full"
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              Add New Category
-                            </Button>
+                              allowNone={true}
+                            />
                           </div>
                         )}
                       </div>
@@ -1441,11 +1413,9 @@ export default function AccountDetailPage() {
                             value={newCategoryName}
                             onChange={(e) => setNewCategoryName(e.target.value)}
                           />
-                          <Input
-                            placeholder="Icon (emoji)"
+                          <IconPicker
                             value={newCategoryIcon}
-                            onChange={(e) => setNewCategoryIcon(e.target.value)}
-                            className="w-20"
+                            onValueChange={setNewCategoryIcon}
                           />
                         </div>
                         <Select
@@ -1486,7 +1456,8 @@ export default function AccountDetailPage() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <Select
+                        <SearchableCategorySelect
+                          categories={categories}
                           value={transactionForm.category || 'none'}
                           onValueChange={(value) => {
                             if (value === 'none') {
@@ -1495,37 +1466,13 @@ export default function AccountDetailPage() {
                               setTransactionForm({ ...transactionForm, category: value });
                             }
                           }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            {categories.map((cat) => (
-                              <SelectItem key={cat.id} value={cat.id}>
-                                <span className="flex items-center gap-2">
-                                  {cat.icon && <span>{cat.icon}</span>}
-                                  <span>{cat.name}</span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
+                          placeholder="Select a category"
+                          onAddNew={() => {
                             console.log('Add new category button clicked in edit form');
                             setShowAddCategory(true);
                           }}
-                          className="w-full"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add New Category
-                        </Button>
+                          allowNone={true}
+                        />
                       </div>
                     )}
                   </div>
@@ -1553,10 +1500,25 @@ export default function AccountDetailPage() {
 
         <ManagePayeesDialog
           open={managePayeesOpen}
-          onOpenChange={setManagePayeesOpen}
+          onOpenChange={(open) => {
+            setManagePayeesOpen(open);
+            if (!open) {
+              setNewPayeeName(''); // Clear prefilled name when dialog closes
+            }
+          }}
           householdId={currentHousehold?.id || ''}
           categories={categories}
-          onPayeeCreated={loadPayees}
+          onPayeeCreated={(payeeId, payeeName) => {
+            loadPayees(); // Reload payees list
+            if (payeeId) {
+              // Select the newly created payee in the transaction form
+              setTransactionForm(prev => ({ ...prev, payee_id: payeeId }));
+              // Close the manage payees dialog to return to transaction dialog
+              setManagePayeesOpen(false);
+              setNewPayeeName('');
+            }
+          }}
+          prefilledName={newPayeeName}
         />
 
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

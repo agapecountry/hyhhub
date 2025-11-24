@@ -27,7 +27,7 @@ const navigation = [
   { id: 'chores', name: 'Chores', href: '/dashboard/chores', icon: CheckSquare },
   { id: 'journal', name: 'Notes & Journal', href: '/dashboard/journal', icon: BookOpen },
   { id: 'subscription', name: 'Subscription', href: '/dashboard/subscription', icon: Crown, alwaysShow: true },
-  { id: 'influencer', name: 'Influencer', href: '/dashboard/influencer', icon: TrendingUp, alwaysShow: true },
+  { id: 'influencer', name: 'Influencer', href: '/dashboard/influencer', icon: TrendingUp, requiresInfluencer: true },
 ];
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -78,6 +78,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     <>
       {navigation.map((item) => {
         if (item.requiresElite && !tier?.features.projects_savings_tracking) {
+          return null;
+        }
+
+        if (item.requiresInfluencer && !tier?.is_influencer_tier) {
           return null;
         }
 

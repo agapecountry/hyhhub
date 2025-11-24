@@ -44,6 +44,7 @@ interface Debt {
   paid_off_at: string | null;
   created_at: string;
   exclude_from_payoff: boolean;
+  category_id: string | null;
 }
 
 interface Payment {
@@ -202,10 +203,11 @@ export default function DebtPage() {
   const handleChooseStrategy = async (strategy: 'avalanche' | 'snowball') => {
     if (!currentHousehold) return;
 
-    if (!hasFeature('personalized_debt_plan')) {
+    // Check if user has at least Basic tier (avalanche and snowball available in Basic+)
+    if (tier?.name === 'free') {
       toast({
-        title: 'Premium Feature',
-        description: 'Personalized debt plans are available on Premium and Elite tiers. Upgrade to get your custom payment plan!',
+        title: 'Basic Feature',
+        description: 'Debt payoff strategies are available starting with the Basic tier. Upgrade to access avalanche and snowball methods!',
         variant: 'destructive',
       });
       return;
@@ -225,9 +227,13 @@ export default function DebtPage() {
 
       setChosenStrategy(strategy);
 
+      // Different message based on tier
+      const hasPersonalizedPlan = hasFeature('personalized_debt_plan');
       toast({
         title: 'Strategy Selected',
-        description: `You've chosen the ${strategy} method. Your personalized plan is ready!`,
+        description: hasPersonalizedPlan 
+          ? `You've chosen the ${strategy} method. Your personalized plan is ready!`
+          : `You've chosen the ${strategy} method. The comparison below shows how this strategy will save you money.`,
       });
     } catch (error: any) {
       toast({
@@ -388,8 +394,8 @@ export default function DebtPage() {
                   type="number"
                   step="1"
                   min="0"
-                  value={extraPayment}
-                  onChange={(e) => setExtraPayment(parseFloat(e.target.value) || 0)}
+                  value={extraPayment === 0 ? '' : extraPayment}
+                  onChange={(e) => setExtraPayment(e.target.value === '' ? 0 : parseFloat(e.target.value))}
                   placeholder="0.00"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
@@ -439,7 +445,7 @@ export default function DebtPage() {
                         onClick={() => handleChooseStrategy('avalanche')}
                         disabled={loading}
                       >
-                        {hasFeature('personalized_debt_plan') ? 'Choose This Plan' : 'Upgrade to Choose'}
+                        {tier?.name !== 'free' ? 'Choose This Plan' : 'Upgrade to Choose'}
                       </Button>
                     )}
                   </CardContent>
@@ -486,7 +492,7 @@ export default function DebtPage() {
                         onClick={() => handleChooseStrategy('snowball')}
                         disabled={loading}
                       >
-                        {hasFeature('personalized_debt_plan') ? 'Choose This Plan' : 'Upgrade to Choose'}
+                        {tier?.name !== 'free' ? 'Choose This Plan' : 'Upgrade to Choose'}
                       </Button>
                     )}
                   </CardContent>
@@ -501,14 +507,14 @@ export default function DebtPage() {
                 </p>
               </div>
 
-              {!hasFeature('personalized_debt_plan') && (
+              {tier?.name === 'free' && (
                 <div className="p-4 bg-primary/10 border-2 border-primary rounded-lg">
                   <div className="flex items-start gap-3">
                     <TrendingUp className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
-                      <h4 className="font-semibold mb-1">Want a Personalized Payment Plan?</h4>
+                      <h4 className="font-semibold mb-1">Unlock Debt Payoff Strategies</h4>
                       <p className="text-sm text-muted-foreground mb-3">
-                        Upgrade to <strong>Premium</strong> or <strong>Elite</strong> to get a customized debt payoff plan that tells you exactly which debt to pay and how much to pay each month.
+                        Upgrade to <strong>Basic</strong> or higher to access avalanche and snowball debt payoff strategies. Premium and Elite tiers include personalized payment plans!
                       </p>
                       <Link href="/dashboard/subscription">
                         <Button size="sm">
@@ -519,6 +525,71 @@ export default function DebtPage() {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {chosenStrategy && activeDebts.length > 0 && tier?.name !== 'free' && !hasFeature('personalized_debt_plan') && (
+          <Card className="border-2 border-primary">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-primary" />
+                Your Priority Debt
+              </CardTitle>
+              <CardDescription>
+                Based on your {chosenStrategy} strategy
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const sortedDebts = chosenStrategy === 'avalanche'
+                  ? [...includedDebts].sort((a, b) => b.interest_rate - a.interest_rate)
+                  : [...includedDebts].sort((a, b) => a.current_balance - b.current_balance);
+
+                const focusDebt = sortedDebts.find(d => d.current_balance > 0);
+
+                return (
+                  <div className="p-4 bg-primary/10 border-2 border-primary rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="text-3xl">{focusDebt && getDebtTypeIcon(focusDebt.type)}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-bold text-lg">Focus Debt: {focusDebt?.name}</h3>
+                          <Badge variant="default">Priority #1</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {chosenStrategy === 'avalanche'
+                            ? `This debt has the highest interest rate (${focusDebt?.interest_rate.toFixed(2)}%), so paying it off first saves the most money.`
+                            : `This debt has the smallest balance ($${focusDebt?.current_balance.toFixed(2)}), so paying it off first provides a quick win.`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {chosenStrategy && activeDebts.length > 0 && tier?.name !== 'free' && !hasFeature('personalized_debt_plan') && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="p-4 bg-muted border rounded-lg">
+                <div className="flex items-start gap-3">
+                  <TrendingUp className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <h4 className="font-semibold mb-1">Want a Personalized Payment Plan?</h4>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Upgrade to <strong>Premium</strong> or <strong>Elite</strong> to get a customized debt payoff plan that tells you exactly which debt to pay and how much to pay each month.
+                    </p>
+                    <Link href="/dashboard/subscription">
+                      <Button size="sm" variant="outline">
+                        View Subscription Plans
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}

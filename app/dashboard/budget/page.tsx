@@ -21,6 +21,9 @@ import { SpendingBreakdownWidget } from '@/components/spending-breakdown-widget'
 import { BudgetOverviewWidget } from '@/components/budget-overview-widget';
 import { logSecurityEvent } from '@/lib/security-logger';
 import { useAuth } from '@/lib/auth-context';
+import { SearchableCategorySelect } from '@/components/searchable-category-select';
+import { IconPicker } from '@/components/icon-picker';
+import { Budget503020 } from '@/components/budget-50-30-20';
 
 interface TransactionCategory {
   id: string;
@@ -93,6 +96,11 @@ export default function BudgetPage() {
     notes: '',
   });
 
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryIcon, setNewCategoryIcon] = useState('');
+  const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense' | 'transfer'>('expense');
+
   useEffect(() => {
     if (currentHousehold) {
       loadCategories();
@@ -160,6 +168,50 @@ export default function BudgetPage() {
       setTransactionCategories(data || []);
     } catch (error: any) {
       console.error('Error loading transaction categories:', error);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    if (!currentHousehold || !newCategoryName.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a category name',
+      });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('transaction_categories')
+        .insert({
+          household_id: currentHousehold.id,
+          name: newCategoryName.trim(),
+          type: newCategoryType,
+          icon: newCategoryIcon || null,
+          color: '#64748b',
+          is_default: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Category added successfully',
+      });
+
+      // Set the new category as selected
+      setFormData({ ...formData, transaction_category_id: data.id });
+      setNewCategoryName('');
+      setNewCategoryIcon('');
+      setShowAddCategory(false);
+      await loadTransactionCategories();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add category',
+      });
     }
   };
 
@@ -470,24 +522,25 @@ export default function BudgetPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Budget Overview</TabsTrigger>
-            <TabsTrigger value="income">Income</TabsTrigger>
-            <TabsTrigger value="categories">Household Expenses</TabsTrigger>
+            <TabsTrigger value="income-expenses">Income & Expenses</TabsTrigger>
+            <TabsTrigger value="50-30-20">50/30/20 Rule</TabsTrigger>
             <TabsTrigger value="paycheck">Paycheck Planner</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 mt-6">
+            <SpendingBreakdownWidget />
             <BudgetOverviewWidget />
           </TabsContent>
 
-          <TabsContent value="income" className="space-y-6 mt-6">
+          <TabsContent value="income-expenses" className="space-y-6 mt-6">
             {hasFeature('paycheck_planner') && (
-              <Card className="border-blue-200 bg-blue-50/50">
+              <Card className="border-slate-200 bg-slate-50/50">
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
-                    <Crown className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <Crown className="h-5 w-5 text-slate-600 mt-0.5" />
                     <div>
-                      <h3 className="font-semibold text-blue-900">Elite Feature Available</h3>
-                      <p className="text-sm text-blue-800 mt-1">
+                      <h3 className="font-semibold text-slate-900">Elite Feature Available</h3>
+                      <p className="text-sm text-slate-700 mt-1">
                         You have access to the advanced Paycheck Planner! Use the Paycheck Planner tab for detailed income tracking with automatic bill scheduling. If you use the Paycheck Planner, you do not need to add income sources here.
                       </p>
                     </div>
@@ -632,7 +685,7 @@ export default function BudgetPage() {
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-3">
-                            <DollarSign className="h-5 w-5 text-green-600" />
+                            <DollarSign className="h-5 w-5 text-emerald-600" />
                             <div>
                               <div className="font-semibold">{income.name}</div>
                               <div className="text-sm text-muted-foreground">
@@ -651,7 +704,7 @@ export default function BudgetPage() {
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">
-                            <div className="font-bold text-green-600">${income.monthly_amount.toFixed(2)}</div>
+                            <div className="font-bold text-emerald-600">${income.monthly_amount.toFixed(2)}</div>
                             <div className="text-xs text-muted-foreground">per month</div>
                           </div>
                           <div className="flex gap-2">
@@ -680,11 +733,8 @@ export default function BudgetPage() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="categories" className="space-y-6 mt-6">
-            <SpendingBreakdownWidget />
-
+            {/* Household Expenses Section */}
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold">Household Expenses</h2>
@@ -710,24 +760,52 @@ export default function BudgetPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={formData.transaction_category_id}
-                    onValueChange={(value) => setFormData({ ...formData, transaction_category_id: value })}
-                  >
-                    <SelectTrigger id="category">
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      {transactionCategories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          <div className="flex items-center gap-2">
-                            <span>{cat.icon}</span>
-                            <span>{cat.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {showAddCategory ? (
+                    <div className="space-y-2 p-4 border rounded-lg">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Category name"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                        />
+                        <IconPicker
+                          value={newCategoryIcon}
+                          onValueChange={setNewCategoryIcon}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          onClick={handleAddCategory}
+                          size="sm"
+                          className="flex-1"
+                        >
+                          Save Category
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setShowAddCategory(false);
+                            setNewCategoryName('');
+                            setNewCategoryIcon('');
+                          }}
+                          size="sm"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <SearchableCategorySelect
+                      categories={transactionCategories}
+                      value={formData.transaction_category_id}
+                      onValueChange={(value) => setFormData({ ...formData, transaction_category_id: value })}
+                      placeholder="Select a category"
+                      allowNone={false}
+                      onAddNew={() => setShowAddCategory(true)}
+                    />
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Choose from your expense categories
                   </p>
@@ -818,15 +896,15 @@ export default function BudgetPage() {
               return (
                 <Card key={category.id} className="relative overflow-hidden">
                   <div
-                    className="absolute top-0 left-0 w-1 h-full"
-                    style={{ backgroundColor: category.color || '#3b82f6' }}
+                    className="absolute top-0 left-0 w-1 h-full opacity-60"
+                    style={{ backgroundColor: category.color || '#64748b' }}
                   />
                   <CardHeader className="pl-6">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
                         <div
-                          className="p-2 rounded-lg text-2xl"
-                          style={{ backgroundColor: `${category.color}20` || '#3b82f620' }}
+                          className="p-2 rounded-lg text-2xl opacity-80"
+                          style={{ backgroundColor: `${category.color}15` || '#64748b15' }}
                         >
                           {category.icon || '📌'}
                         </div>
@@ -867,6 +945,56 @@ export default function BudgetPage() {
             })}
           </div>
         )}
+          </TabsContent>
+
+          <TabsContent value="50-30-20" className="space-y-6 mt-6">
+            {hasFeature('paycheck_planner') ? (
+              <Budget503020 />
+            ) : (
+              <Card className="border-primary/20">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Lock className="h-5 w-5 text-primary" />
+                    <CardTitle>Elite Feature</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Upgrade to Elite to access the 50/30/20 Budget Calculator
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      The 50/30/20 Budget Calculator helps you:
+                    </p>
+                    <ul className="space-y-2 text-sm text-muted-foreground">
+                      <li className="flex items-start gap-2">
+                        <DollarSign className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                        <span>Allocate 50% of income to needs, 30% to wants, 20% to savings</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Calendar className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                        <span>Calculate emergency fund timeline (3 months income)</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Receipt className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                        <span>Project debt payoff timelines for credit cards and loans</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <ShoppingCart className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                        <span>Track net worth (assets minus liabilities)</span>
+                      </li>
+                    </ul>
+                  </div>
+                  <Button
+                    onClick={() => router.push('/dashboard/subscription')}
+                    className="w-full"
+                  >
+                    <Crown className="h-4 w-4 mr-2" />
+                    Upgrade to Elite
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="paycheck" className="space-y-6 mt-6">

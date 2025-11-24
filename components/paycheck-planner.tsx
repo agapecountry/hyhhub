@@ -1019,7 +1019,7 @@ export function PaycheckPlanner() {
                             )}
                             <Badge
                               variant={payment.type === 'extra-debt' ? 'default' : 'outline'}
-                              className={`text-xs ${payment.isFocusDebt ? 'bg-amber-600 text-white' : ''} ${payment.type === 'budget' ? 'bg-blue-100 text-blue-700 border-blue-300' : ''}`}
+                              className={`text-xs ${payment.isFocusDebt ? 'bg-amber-700 text-white' : ''} ${payment.type === 'budget' ? 'bg-blue-100 text-blue-700 border-blue-300' : ''}`}
                             >
                               {payment.type === 'extra-debt' ? 'EXTRA PAYMENT' : payment.type}
                             </Badge>
@@ -1045,7 +1045,7 @@ export function PaycheckPlanner() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className={`font-semibold ${payment.isFocusDebt ? 'text-amber-600' : 'text-destructive'}`}>
+                        <span className={`font-semibold ${payment.isFocusDebt ? 'text-amber-700' : 'text-destructive'}`}>
                           -${payment.amount.toFixed(2)}
                         </span>
                         {(() => {

@@ -31,7 +31,7 @@ This document outlines the features available in each subscription tier.
 | Bank Connections (Plaid) | Manual only | 2 | 4 | 10 | 4 | 10 |
 | Auto-Refresh Accounts | ❌ | Manual | On Load | ✅ | On Load | ✅ |
 | Auto-Refresh Loans | ❌ | ❌ | Manual | ✅ | Manual | ✅ |
-| Debt Payoff Strategies | ❌ | ❌ | Avalanche, Snowball, Snowflake | All + Payoff Plan | Avalanche, Snowball, Snowflake | All + Payoff Plan |
+| Debt Payoff Strategies | ❌ | Avalanche, Snowball | Avalanche, Snowball, Snowflake | All + Payoff Plan | Avalanche, Snowball, Snowflake | All + Payoff Plan |
 | Paycheck Planner | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
 
 ### Advanced Features
@@ -66,10 +66,10 @@ This document outlines the features available in each subscription tier.
   - Manual: Manual refresh only (Premium)
   - ✅: Automatic daily sync (Elite only)
 - **Debt Payoff Strategies**:
-  - ❌: No debt strategies (Free, Basic)
-  - **Avalanche**: Pay off highest interest rate first (saves most money)
-  - **Snowball**: Pay off smallest balance first (psychological wins)
-  - **Snowflake**: Apply extra payments strategically
+  - ❌: No debt strategies (Free only)
+  - **Avalanche**: Pay off highest interest rate first (saves most money) - Basic+
+  - **Snowball**: Pay off smallest balance first (psychological wins) - Basic+
+  - **Snowflake**: Apply extra payments strategically (Premium+)
   - **Highest Balance**: Pay off largest debt first (Elite only)
   - **Custom**: Create your own payment strategy (Elite only)
   - **Payoff Plan**: Enhanced debt payoff integrated with paycheck planner (Elite only)
@@ -96,8 +96,9 @@ This document outlines the features available in each subscription tier.
 **What you gain:**
 - 2 Plaid bank connections
 - Manual account refresh capability
+- Debt payoff strategies (Avalanche, Snowball)
 
-**Good for:** Users who want to connect 1-2 bank accounts for basic tracking
+**Good for:** Users who want to connect 1-2 bank accounts for basic tracking and debt management
 
 ### Basic → Premium ($5/mo more)
 **What you gain:**
@@ -198,7 +199,7 @@ interface TierFeatures {
   "plaid_enabled": true,
   "plaid_connection_limit": 2,
   "manual_refresh_accounts": true,
-  "debt_strategies": []
+  "debt_strategies": ["avalanche", "snowball"]
 }
 ```
 

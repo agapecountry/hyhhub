@@ -22,6 +22,8 @@ import { useRouter } from 'next/navigation';
 import { PageHelpDialog } from '@/components/page-help-dialog';
 import { pageHelpContent } from '@/lib/page-help-content';
 import { PlaidLinkButton } from '@/components/plaid-link-button';
+import { SearchableCategorySelect } from '@/components/searchable-category-select';
+import { IconPicker } from '@/components/icon-picker';
 
 interface ManualAccount {
   id: string;
@@ -122,6 +124,10 @@ export default function AccountsPage() {
   });
   const [deleteBillDialogOpen, setDeleteBillDialogOpen] = useState(false);
   const [billToDelete, setBillToDelete] = useState<Bill | null>(null);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryIcon, setNewCategoryIcon] = useState('');
+  const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense' | 'transfer'>('expense');
 
   useEffect(() => {
     if (currentHousehold) {
@@ -369,6 +375,51 @@ export default function AccountsPage() {
     }
   };
 
+  const handleAddCategory = async () => {
+    if (!currentHousehold || !newCategoryName.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a category name',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('transaction_categories')
+        .insert({
+          household_id: currentHousehold.id,
+          name: newCategoryName.trim(),
+          type: newCategoryType,
+          icon: newCategoryIcon || null,
+          color: '#64748b',
+          is_default: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Category added successfully',
+      });
+
+      // Set the new category as selected
+      setBillForm({ ...billForm, category_id: data.id });
+      setNewCategoryName('');
+      setNewCategoryIcon('');
+      setShowAddCategory(false);
+      await loadCategories();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add category',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const handleSaveBill = async () => {
     if (!currentHousehold) return;
@@ -998,24 +1049,52 @@ export default function AccountsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="category">Category *</Label>
-              <Select
-                value={billForm.category_id}
-                onValueChange={(value) => setBillForm({ ...billForm, category_id: value })}
-              >
-                <SelectTrigger id="category">
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      <span className="flex items-center gap-2">
-                        {category.icon && <span>{category.icon}</span>}
-                        {category.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {showAddCategory ? (
+                <div className="space-y-2 p-4 border rounded-lg">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Category name"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                    />
+                    <IconPicker
+                      value={newCategoryIcon}
+                      onValueChange={setNewCategoryIcon}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleAddCategory}
+                      size="sm"
+                      className="flex-1"
+                    >
+                      Save Category
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowAddCategory(false);
+                        setNewCategoryName('');
+                        setNewCategoryIcon('');
+                      }}
+                      size="sm"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <SearchableCategorySelect
+                  categories={categories}
+                  value={billForm.category_id}
+                  onValueChange={(value) => setBillForm({ ...billForm, category_id: value })}
+                  placeholder="Select a category"
+                  allowNone={false}
+                  onAddNew={() => setShowAddCategory(true)}
+                />
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

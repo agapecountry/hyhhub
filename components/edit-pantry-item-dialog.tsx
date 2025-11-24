@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
 
 interface PantryItem {
   id: string;
@@ -30,6 +31,7 @@ interface Location {
   id: string;
   name: string;
   icon: string;
+  display_order?: number;
 }
 
 interface EditPantryItemDialogProps {
@@ -42,6 +44,9 @@ interface EditPantryItemDialogProps {
 export function EditPantryItemDialog({ open, onOpenChange, item, onSuccess }: EditPantryItemDialogProps) {
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocationName, setNewLocationName] = useState('');
+  const [newLocationIcon, setNewLocationIcon] = useState('📦');
   const [formData, setFormData] = useState({
     name: '',
     quantity: '',
@@ -180,18 +185,112 @@ export function EditPantryItemDialog({ open, onOpenChange, item, onSuccess }: Ed
 
             <div className="space-y-2">
               <Label htmlFor="edit-location">Location</Label>
-              <Select value={formData.location_id} onValueChange={(value) => setFormData({ ...formData, location_id: value })}>
-                <SelectTrigger id="edit-location">
-                  <SelectValue placeholder="Select location" />
-                </SelectTrigger>
-                <SelectContent>
-                  {locations.map((location) => (
-                    <SelectItem key={location.id} value={location.id}>
-                      {location.icon} {location.name}
+              {!showAddLocation ? (
+                <Select value={formData.location_id} onValueChange={(value) => {
+                  if (value === 'add_new') {
+                    setShowAddLocation(true);
+                  } else {
+                    setFormData({ ...formData, location_id: value });
+                  }
+                }}>
+                  <SelectTrigger id="edit-location">
+                    <SelectValue placeholder="Select location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id}>
+                        {location.icon} {location.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="add_new" className="text-primary font-semibold">
+                      + Add New Location
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="space-y-3 p-4 border rounded-lg bg-muted/50">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-location-name">Location Name</Label>
+                    <Input
+                      id="new-location-name"
+                      value={newLocationName}
+                      onChange={(e) => setNewLocationName(e.target.value)}
+                      placeholder="e.g., Garage, Backpack"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-location-icon">Icon</Label>
+                    <Select value={newLocationIcon} onValueChange={setNewLocationIcon}>
+                      <SelectTrigger id="new-location-icon">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="📦">📦 Pantry</SelectItem>
+                        <SelectItem value="🧊">🧊 Fridge</SelectItem>
+                        <SelectItem value="❄️">❄️ Freezer</SelectItem>
+                        <SelectItem value="🗃️">🗃️ Storage</SelectItem>
+                        <SelectItem value="🚗">🚗 Garage</SelectItem>
+                        <SelectItem value="🎒">🎒 Backpack</SelectItem>
+                        <SelectItem value="👜">👜 Handbag</SelectItem>
+                        <SelectItem value="🧰">🧰 Toolbox</SelectItem>
+                        <SelectItem value="🧺">🧺 Basket</SelectItem>
+                        <SelectItem value="🪜">🪜 Attic</SelectItem>
+                        <SelectItem value="⬇️">⬇️ Basement</SelectItem>
+                        <SelectItem value="🚪">🚪 Closet</SelectItem>
+                        <SelectItem value="🏠">🏠 Shed</SelectItem>
+                        <SelectItem value="📚">📚 Shelf</SelectItem>
+                        <SelectItem value="🗄️">🗄️ Cabinet</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowAddLocation(false);
+                        setNewLocationName('');
+                        setNewLocationIcon('📦');
+                      }}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={async () => {
+                        if (!newLocationName.trim()) {
+                          toast({ title: 'Error', description: 'Please enter a location name', variant: 'destructive' });
+                          return;
+                        }
+                        try {
+                          const maxOrder = locations.length > 0 ? Math.max(...locations.map((loc: any) => loc.display_order || 0)) : -1;
+                          const { data, error } = await supabase.from('pantry_locations').insert({
+                            household_id: item.household_id,
+                            name: newLocationName.trim(),
+                            icon: newLocationIcon,
+                            display_order: maxOrder + 1,
+                          }).select().single();
+                          if (error) throw error;
+                          toast({ title: 'Success', description: `Location "${newLocationName}" created` });
+                          setLocations([...locations, data]);
+                          setFormData({ ...formData, location_id: data.id });
+                          setShowAddLocation(false);
+                          setNewLocationName('');
+                          setNewLocationIcon('📦');
+                        } catch (error: any) {
+                          toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                        }
+                      }}
+                      className="flex-1"
+                    >
+                      Add Location
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">

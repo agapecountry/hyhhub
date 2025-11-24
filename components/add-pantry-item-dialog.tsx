@@ -24,6 +24,7 @@ interface Location {
   id: string;
   name: string;
   icon: string;
+  display_order?: number;
 }
 
 export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantryItemDialogProps) {
@@ -35,6 +36,9 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
   const [productFound, setProductFound] = useState<boolean | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [activeTab, setActiveTab] = useState('manual');
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocationName, setNewLocationName] = useState('');
+  const [newLocationIcon, setNewLocationIcon] = useState('📦');
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -311,20 +315,116 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
 
             <div className="space-y-2">
               <Label htmlFor="location">Location</Label>
-              <Select value={formData.location_id} onValueChange={(value) => setFormData({ ...formData, location_id: value })} required>
-                <SelectTrigger id="location">
-                  <SelectValue placeholder="Select location" />
-                </SelectTrigger>
-                <SelectContent>
-                  {locations.map((location) => (
-                    <SelectItem key={location.id} value={location.id}>
-                      {location.icon} {location.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {locations.length === 0 && (
-                <p className="text-xs text-amber-600">No locations available. Please create a location first.</p>
+              {!showAddLocation ? (
+                <>
+                  <Select value={formData.location_id} onValueChange={(value) => {
+                    if (value === 'add_new') {
+                      setShowAddLocation(true);
+                    } else {
+                      setFormData({ ...formData, location_id: value });
+                    }
+                  }} required>
+                    <SelectTrigger id="location">
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((location) => (
+                        <SelectItem key={location.id} value={location.id}>
+                          {location.icon} {location.name}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="add_new" className="text-primary font-semibold">
+                        + Add New Location
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {locations.length === 0 && (
+                    <p className="text-xs text-amber-700">No locations available. Please add a location below.</p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3 p-4 border rounded-lg bg-muted/50">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-location-name">Location Name</Label>
+                    <Input
+                      id="new-location-name"
+                      value={newLocationName}
+                      onChange={(e) => setNewLocationName(e.target.value)}
+                      placeholder="e.g., Garage, Backpack"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-location-icon">Icon</Label>
+                    <Select value={newLocationIcon} onValueChange={setNewLocationIcon}>
+                      <SelectTrigger id="new-location-icon">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="📦">📦 Pantry</SelectItem>
+                        <SelectItem value="🧊">🧊 Fridge</SelectItem>
+                        <SelectItem value="❄️">❄️ Freezer</SelectItem>
+                        <SelectItem value="🗃️">🗃️ Storage</SelectItem>
+                        <SelectItem value="🚗">🚗 Garage</SelectItem>
+                        <SelectItem value="🎒">🎒 Backpack</SelectItem>
+                        <SelectItem value="👜">👜 Handbag</SelectItem>
+                        <SelectItem value="🧰">🧰 Toolbox</SelectItem>
+                        <SelectItem value="🧺">🧺 Basket</SelectItem>
+                        <SelectItem value="🪜">🪜 Attic</SelectItem>
+                        <SelectItem value="⬇️">⬇️ Basement</SelectItem>
+                        <SelectItem value="🚪">🚪 Closet</SelectItem>
+                        <SelectItem value="🏠">🏠 Shed</SelectItem>
+                        <SelectItem value="📚">📚 Shelf</SelectItem>
+                        <SelectItem value="🗄️">🗄️ Cabinet</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowAddLocation(false);
+                        setNewLocationName('');
+                        setNewLocationIcon('📦');
+                      }}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={async () => {
+                        if (!newLocationName.trim()) {
+                          toast({ title: 'Error', description: 'Please enter a location name', variant: 'destructive' });
+                          return;
+                        }
+                        try {
+                          const maxOrder = locations.length > 0 ? Math.max(...locations.map(loc => loc.display_order || 0)) : -1;
+                          const { data, error } = await supabase.from('pantry_locations').insert({
+                            household_id: currentHousehold!.id,
+                            name: newLocationName.trim(),
+                            icon: newLocationIcon,
+                            display_order: maxOrder + 1,
+                          }).select().single();
+                          if (error) throw error;
+                          toast({ title: 'Success', description: `Location "${newLocationName}" created` });
+                          setLocations([...locations, data]);
+                          setFormData({ ...formData, location_id: data.id });
+                          setShowAddLocation(false);
+                          setNewLocationName('');
+                          setNewLocationIcon('📦');
+                        } catch (error: any) {
+                          toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                        }
+                      }}
+                      className="flex-1"
+                    >
+                      Add Location
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -404,7 +504,7 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
                 <div className={`p-4 border-2 rounded-lg ${
                   productFound
                     ? 'bg-green-50 border-green-500'
-                    : 'bg-amber-50 border-amber-500'
+                    : 'bg-amber-100 border-amber-600'
                 }`}>
                   <div className="flex items-center gap-2 mb-2">
                     <ScanBarcode className="h-5 w-5" />

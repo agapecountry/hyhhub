@@ -193,8 +193,8 @@ export function MemberPermissionsDialog({
 
         {isAdmin && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-center gap-2">
-            <Crown className="h-4 w-4 text-amber-600" />
-            <span className="text-sm text-amber-800">
+            <Crown className="h-4 w-4 text-amber-700" />
+            <span className="text-sm text-amber-900">
               This user is an admin and has full access to all sections
             </span>
           </div>

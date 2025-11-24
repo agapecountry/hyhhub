@@ -140,6 +140,8 @@ BEGIN
     (p_household_id, 'Entertainment', 'expense', '🎬', '#f97316', true),
     (p_household_id, 'Shopping', 'expense', '🛍️', '#a855f7', true),
     (p_household_id, 'Subscriptions', 'expense', '📱', '#6366f1', true),
+    (p_household_id, 'Credit Card', 'expense', '💳', '#ef4444', true),
+    (p_household_id, 'Personal Loan', 'expense', '💸', '#3b82f6', true),
     (p_household_id, 'Education', 'expense', '📚', '#84cc16', true),
     (p_household_id, 'Personal Care', 'expense', '💆', '#f43f5e', true),
     (p_household_id, 'Pet Care', 'expense', '🐾', '#22c55e', true),

@@ -19,7 +19,8 @@ interface ManagePayeesDialogProps {
   onOpenChange: (open: boolean) => void;
   householdId: string;
   categories: TransactionCategory[];
-  onPayeeCreated?: () => void;
+  onPayeeCreated?: (payeeId?: string, payeeName?: string) => void;
+  prefilledName?: string;
 }
 
 export function ManagePayeesDialog({
@@ -28,6 +29,7 @@ export function ManagePayeesDialog({
   householdId,
   categories,
   onPayeeCreated,
+  prefilledName,
 }: ManagePayeesDialogProps) {
   const { toast } = useToast();
   const [payees, setPayees] = useState<Payee[]>([]);
@@ -46,8 +48,13 @@ export function ManagePayeesDialog({
   useEffect(() => {
     if (open && householdId) {
       loadPayees();
+      // If a prefilled name is provided, show the form and set the name
+      if (prefilledName) {
+        setShowForm(true);
+        setFormData(prev => ({ ...prev, name: prefilledName }));
+      }
     }
-  }, [open, householdId]);
+  }, [open, householdId, prefilledName]);
 
   const loadPayees = async () => {
     setLoading(true);
@@ -107,9 +114,11 @@ export function ManagePayeesDialog({
         description: 'Payee updated successfully',
       });
     } else {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('payees')
-        .insert([payeeData]);
+        .insert([payeeData])
+        .select()
+        .single();
 
       if (error) {
         toast({
@@ -124,13 +133,20 @@ export function ManagePayeesDialog({
         title: 'Success',
         description: 'Payee created successfully',
       });
+      
+      // Return the newly created payee to parent
+      onPayeeCreated?.(data?.id, data?.name);
     }
 
     setFormData({ name: '', default_category_id: '', default_transaction_type: '', notes: '' });
     setEditingPayee(null);
     setShowForm(false);
     loadPayees();
-    onPayeeCreated?.();
+    
+    // Only call onPayeeCreated here if we updated (not created)
+    if (editingPayee) {
+      onPayeeCreated?.();
+    }
   };
 
   const handleEdit = (payee: Payee) => {
