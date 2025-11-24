@@ -19,7 +19,14 @@ export default function LandingPage() {
   }, [user, loading, router]);
 
   if (loading) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-teal-50">
+        <div className="text-center">
+          <HYHIcon size={80} className="mx-auto mb-4" />
+          <div className="animate-pulse text-slate-600">Loading...</div>
+        </div>
+      </div>
+    );
   }
 
   return (
