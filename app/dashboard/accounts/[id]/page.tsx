@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ArrowLeft, Plus, Download, Trash2, CreditCard as Edit2, Link2, RefreshCw, Users, Check, X, Filter } from 'lucide-react';
 import { ManagePayeesDialog } from '@/components/manage-payees-dialog';
 import { PlaidSyncButton } from '@/components/plaid-sync-button';
+import { PlaidLinkProvider } from '@/lib/plaid-link-context';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
@@ -71,6 +72,8 @@ interface Payee {
   debt_id: string | null;
   bill_id: string | null;
   debt_name?: string;
+  account_id?: string | null;
+  is_transfer_account?: boolean;
 }
 
 export default function AccountDetailPage() {
@@ -100,6 +103,7 @@ export default function AccountDetailPage() {
     category: '',
     notes: '',
     is_pending: false,
+    is_cleared: false,
     debt_id: '',
     is_recurring: false,
     recurring_frequency: 'monthly' as 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly',
@@ -109,6 +113,7 @@ export default function AccountDetailPage() {
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
   const [filterUncleared, setFilterUncleared] = useState(false);
   const [newPayeeName, setNewPayeeName] = useState('');
+  const [transferCategoryId, setTransferCategoryId] = useState<string>('');
 
   const accountId = params.id as string;
   const isPlaidAccount = account?.plaid_item_id != null;
@@ -122,6 +127,7 @@ export default function AccountDetailPage() {
       category: '',
       notes: '',
       is_pending: false,
+      is_cleared: false,
       debt_id: '',
       is_recurring: false,
       recurring_frequency: 'monthly' as 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly',
@@ -159,6 +165,7 @@ export default function AccountDetailPage() {
     if (!currentHousehold) return;
 
     try {
+      // Load regular payees
       const { data, error } = await supabase
         .from('payees')
         .select(`
@@ -181,7 +188,64 @@ export default function AccountDetailPage() {
         debts: undefined,
       }));
 
-      setPayees(payeesWithDebtNames);
+      // Load accounts as transfer payees (exclude current account)
+      const { data: accountsData, error: accountsError } = await supabase
+        .from('accounts')
+        .select('id, name, balance')
+        .eq('household_id', currentHousehold.id)
+        .neq('id', accountId)
+        .order('name');
+
+      if (accountsError) throw accountsError;
+
+      // Load Plaid accounts as transfer payees (exclude current account)
+      const { data: plaidAccountsData, error: plaidAccountsError } = await supabase
+        .from('plaid_accounts')
+        .select('id, name, current_balance')
+        .eq('household_id', currentHousehold.id)
+        .neq('id', accountId)
+        .order('name');
+
+      if (plaidAccountsError) throw plaidAccountsError;
+
+      // Get transfer category for these payees
+      const { data: transferCategory } = await supabase
+        .from('transaction_categories')
+        .select('id')
+        .eq('household_id', currentHousehold.id)
+        .eq('type', 'transfer')
+        .single();
+
+      if (transferCategory) {
+        setTransferCategoryId(transferCategory.id);
+      }
+
+      // Convert accounts to payee format
+      const accountPayees: Payee[] = [
+        ...(accountsData || []).map(acc => ({
+          id: `account_${acc.id}`,
+          name: `Transfer: ${acc.name}`,
+          default_category_id: transferCategory?.id || null,
+          default_transaction_type: null,
+          debt_id: null,
+          bill_id: null,
+          account_id: acc.id,
+          is_transfer_account: true,
+        })),
+        ...(plaidAccountsData || []).map(acc => ({
+          id: `account_${acc.id}`,
+          name: `Transfer: ${acc.name}`,
+          default_category_id: transferCategory?.id || null,
+          default_transaction_type: null,
+          debt_id: null,
+          bill_id: null,
+          account_id: acc.id,
+          is_transfer_account: true,
+        })),
+      ];
+
+      // Combine regular payees with account payees
+      setPayees([...payeesWithDebtNames, ...accountPayees]);
     } catch (error: any) {
       console.error('Error loading payees:', error);
     }
@@ -342,11 +406,11 @@ export default function AccountDetailPage() {
               category_id: t.category_id || null,
               notes: t.notes || t.merchant_name || null,
               is_pending: t.pending,
-              is_cleared: false,
+              is_cleared: t.is_cleared !== null ? t.is_cleared : !t.pending, // Use manual override or derive from pending status
               plaid_transaction_id: t.transaction_id,
               debt_id: t.debt_id || null,
               bill_id: t.bill_id || null,
-              payee_id: null,
+              payee_id: t.payee_id || null,
               recurring_transaction_id: null,
               created_at: t.created_at,
               auto_matched: t.auto_matched || false,
@@ -387,15 +451,20 @@ export default function AccountDetailPage() {
       const rawAmount = parseFloat(transactionForm.amount);
       const amount = transactionForm.transaction_type === 'withdraw' ? -Math.abs(rawAmount) : Math.abs(rawAmount);
 
+      // Check if this is a transfer to another account
+      const selectedPayee = payees.find(p => p.id === transactionForm.payee_id);
+      const isTransfer = selectedPayee?.is_transfer_account && selectedPayee?.account_id;
+
       const transactionData: any = {
         account_id: accountId,
         household_id: currentHousehold.id,
         date: transactionForm.date,
         amount: amount,
         description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
-        category_id: transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null,
+        category_id: isTransfer ? transferCategoryId : (transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null),
         notes: transactionForm.notes || null,
         is_pending: transactionForm.is_pending,
+        is_cleared: !transactionForm.is_pending,
         debt_id: transactionForm.debt_id || null,
         payee_id: transactionForm.payee_id || null,
       };
@@ -425,23 +494,83 @@ export default function AccountDetailPage() {
         transactionData.recurring_transaction_id = recurringData.id;
       }
 
+      // Generate transfer ID if this is a transfer
+      const transferId = isTransfer ? crypto.randomUUID() : null;
+      if (transferId) {
+        transactionData.transfer_id = transferId;
+      }
+
       const { error } = await supabase
         .from('transactions')
         .insert(transactionData);
 
       if (error) throw error;
 
-      // Update account balance
+      // If this is a transfer, create the corresponding transaction in the destination account
+      if (isTransfer && selectedPayee?.account_id) {
+        const destinationAmount = -amount; // Opposite sign for destination
+        const destinationDescription = account?.name ? `Transfer from ${account.name}` : 'Transfer';
+        
+        const destinationTransaction = {
+          account_id: selectedPayee.account_id,
+          household_id: currentHousehold.id,
+          date: transactionForm.date,
+          amount: destinationAmount,
+          description: destinationDescription,
+          category_id: transferCategoryId,
+          notes: transactionForm.notes || null,
+          is_pending: false,
+          is_cleared: true,
+          transfer_id: transferId,
+        };
+
+        const { error: destError } = await supabase
+          .from('transactions')
+          .insert(destinationTransaction);
+
+        if (destError) throw destError;
+
+        // Update destination account balance
+        const { data: destAccount, error: destAccountError } = await supabase
+          .from('accounts')
+          .select('balance')
+          .eq('id', selectedPayee.account_id)
+          .single();
+
+        if (!destAccountError && destAccount) {
+          await supabase
+            .from('accounts')
+            .update({ balance: destAccount.balance + destinationAmount })
+            .eq('id', selectedPayee.account_id);
+        }
+
+        // Also check plaid_accounts
+        const { data: destPlaidAccount, error: destPlaidError } = await supabase
+          .from('plaid_accounts')
+          .select('current_balance')
+          .eq('id', selectedPayee.account_id)
+          .single();
+
+        if (!destPlaidError && destPlaidAccount) {
+          await supabase
+            .from('plaid_accounts')
+            .update({ current_balance: destPlaidAccount.current_balance + destinationAmount })
+            .eq('id', selectedPayee.account_id);
+        }
+      }
+
+      // Update source account balance
       const newBalance = (account?.balance || 0) + amount;
       const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
+      const balanceField = isPlaidAccount ? 'current_balance' : 'balance';
       await supabase
         .from(table)
-        .update({ balance: newBalance })
+        .update({ [balanceField]: newBalance })
         .eq('id', accountId);
 
       toast({
         title: 'Success',
-        description: transactionForm.is_recurring ? 'Recurring transaction created successfully' : 'Transaction added successfully',
+        description: isTransfer ? 'Transfer completed successfully' : (transactionForm.is_recurring ? 'Recurring transaction created successfully' : 'Transaction added successfully'),
       });
 
       resetTransactionForm();
@@ -479,14 +608,25 @@ export default function AccountDetailPage() {
           ? payees.find(p => p.id === transactionForm.payee_id)?.name || editingTransaction.description
           : editingTransaction.description;
         
+        // IMPORTANT: Plaid uses opposite sign convention
+        // Our UI: withdrawals are negative, deposits are positive
+        // Plaid: debits are positive, credits are negative
+        // So we need to invert the amount when saving back to Plaid table
+        const plaidAmount = -amount;
+        
         const { error } = await supabase
           .from('plaid_transactions')
           .update({
             date: transactionForm.date,
             name: updatedName,
-            amount: amount,
+            amount: plaidAmount,
+            category_id: categoryId,
+            payee_id: transactionForm.payee_id || null,
             notes: transactionForm.notes || null,
             pending: transactionForm.is_pending,
+            is_cleared: transactionForm.is_cleared,
+            debt_id: transactionForm.debt_id || null,
+            bill_id: null, // Can be enhanced later if needed
             user_modified: true,
             user_modified_at: new Date().toISOString(),
           })
@@ -539,6 +679,7 @@ export default function AccountDetailPage() {
         category: '',
         notes: '',
         is_pending: false,
+        is_cleared: false,
         debt_id: '',
         is_recurring: false,
         recurring_frequency: 'monthly',
@@ -607,6 +748,7 @@ export default function AccountDetailPage() {
       category: transaction.category_id || '',
       notes: transaction.notes || '',
       is_pending: transaction.is_pending,
+      is_cleared: transaction.is_cleared,
       debt_id: transaction.debt_id || '',
       is_recurring: false,
       recurring_frequency: 'monthly',
@@ -750,9 +892,22 @@ export default function AccountDetailPage() {
 
   const toggleCleared = async (transactionId: string, currentCleared: boolean) => {
     try {
+      const transaction = transactions.find(t => t.id === transactionId);
+      const isPlaidTransaction = !!transaction?.plaid_transaction_id;
+      
+      // Update the appropriate table
+      const table = isPlaidTransaction ? 'plaid_transactions' : 'transactions';
+      const updateData: any = { is_cleared: !currentCleared };
+      
+      // For Plaid transactions, also mark as user_modified
+      if (isPlaidTransaction) {
+        updateData.user_modified = true;
+        updateData.user_modified_at = new Date().toISOString();
+      }
+      
       const { error } = await supabase
-        .from('transactions')
-        .update({ is_cleared: !currentCleared })
+        .from(table)
+        .update(updateData)
         .eq('id', transactionId);
 
       if (error) throw error;
@@ -777,11 +932,13 @@ export default function AccountDetailPage() {
 
   if (loading || !account) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-96">
-          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </DashboardLayout>
+      <PlaidLinkProvider>
+        <DashboardLayout>
+          <div className="flex items-center justify-center h-96">
+            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        </DashboardLayout>
+      </PlaidLinkProvider>
     );
   }
 
@@ -802,8 +959,9 @@ export default function AccountDetailPage() {
   }, [] as any[]).reverse();
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
+    <PlaidLinkProvider>
+      <DashboardLayout>
+        <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/accounts')}>
@@ -1194,8 +1352,7 @@ export default function AccountDetailPage() {
                             size="sm"
                             onClick={() => toggleCleared(transaction.id, transaction.is_cleared)}
                             className="h-8 w-8 p-0"
-                            disabled={!!transaction.plaid_transaction_id}
-                            title={transaction.plaid_transaction_id ? 'Cannot mark Plaid transactions' : (transaction.is_cleared ? 'Mark as uncleared' : 'Mark as cleared')}
+                            title={transaction.is_cleared ? 'Mark as uncleared' : 'Mark as cleared'}
                           >
                             {transaction.is_cleared ? (
                               <Check className="h-5 w-5 text-green-600" />
@@ -1224,19 +1381,6 @@ export default function AccountDetailPage() {
                               </div>
                               {transaction.plaid_transaction_id && (
                                 <Badge variant="outline" className="text-xs">Plaid</Badge>
-                              )}
-                              {transaction.auto_matched && transaction.match_confidence && (
-                                <Badge 
-                                  variant="secondary" 
-                                  className={`text-xs ${
-                                    transaction.match_confidence === 'high' ? 'bg-green-100 text-green-800' :
-                                    transaction.match_confidence === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-blue-100 text-blue-800'
-                                  }`}
-                                  title="Auto-matched transaction"
-                                >
-                                  ✓ {transaction.match_confidence}
-                                </Badge>
                               )}
                             </div>
                             {transaction.notes && (
@@ -1537,7 +1681,8 @@ export default function AccountDetailPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
-    </DashboardLayout>
+        </div>
+      </DashboardLayout>
+    </PlaidLinkProvider>
   );
 }
