@@ -30,6 +30,7 @@ export function Budget503020() {
   const [monthlyBills, setMonthlyBills] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentHousehold) {
@@ -247,6 +248,14 @@ export function Budget503020() {
     }).format(num);
   };
 
+  const getInputValue = (fieldName: string, value: number) => {
+    // Show raw number when focused, formatted when not
+    if (focusedField === fieldName) {
+      return value.toString();
+    }
+    return formatCurrency(value).replace('$', '').trim();
+  };
+
   if (loading) {
     return (
       <Card>
@@ -293,7 +302,9 @@ export function Budget503020() {
               <Input
                 id="annual-income"
                 type="text"
-                value={formatCurrency(annualIncome).replace('$', '')}
+                value={getInputValue('annualIncome', annualIncome)}
+                onFocus={() => setFocusedField('annualIncome')}
+                onBlur={() => setFocusedField(null)}
                 onChange={(e) => {
                   const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
                   setAnnualIncome(numValue);
@@ -354,7 +365,9 @@ export function Budget503020() {
                 <Input
                   id="cc-debt"
                   type="text"
-                  value={formatCurrency(creditCardDebt).replace('$', '')}
+                  value={getInputValue('creditCardDebt', creditCardDebt)}
+                  onFocus={() => setFocusedField('creditCardDebt')}
+                  onBlur={() => setFocusedField(null)}
                   onChange={(e) => {
                     const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
                     setCreditCardDebt(numValue);
@@ -406,7 +419,9 @@ export function Budget503020() {
                 <Input
                   id="other-loans"
                   type="text"
-                  value={formatCurrency(otherLoans).replace('$', '')}
+                  value={getInputValue('otherLoans', otherLoans)}
+                  onFocus={() => setFocusedField('otherLoans')}
+                  onBlur={() => setFocusedField(null)}
                   onChange={(e) => {
                     const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
                     setOtherLoans(numValue);
@@ -439,7 +454,9 @@ export function Budget503020() {
                 <Input
                   id="assets"
                   type="text"
-                  value={formatCurrency(assets).replace('$', '')}
+                  value={getInputValue('assets', assets)}
+                  onFocus={() => setFocusedField('assets')}
+                  onBlur={() => setFocusedField(null)}
                   onChange={(e) => {
                     const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
                     setAssets(numValue);

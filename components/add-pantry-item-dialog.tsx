@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScanBarcode, X } from 'lucide-react';
 import { useHousehold } from '@/lib/household-context';
 import { supabase } from '@/lib/supabase';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { toast } from '@/hooks/use-toast';
 
 interface AddPantryItemDialogProps {
@@ -40,6 +40,7 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
   const [newLocationName, setNewLocationName] = useState('');
   const [newLocationIcon, setNewLocationIcon] = useState('📦');
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const [manualBarcode, setManualBarcode] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     quantity: '',
@@ -106,28 +107,84 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
     setLookingUpProduct(true);
     setProductFound(null);
 
-    try {
-      const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
-      const data = await response.json();
+    console.log('Looking up barcode:', barcode);
 
-      if (data.status === 1 && data.product) {
-        const product = data.product;
-        const productName = product.product_name || product.product_name_en || 'Unknown Product';
-        const quantity = product.quantity || '';
+    try {
+      // Use Open Food Facts (works with CORS, good international coverage)
+      const offResponse = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
+      const offData = await offResponse.json();
+
+      if (offData.status === 1 && offData.product) {
+        const product = offData.product;
+        // Use imported English name first, fallback to other names
+        const productName = product.product_name_en_imported 
+          || product.product_name_en 
+          || product.product_name_es 
+          || product.product_name 
+          || 'Unknown Product';
+        
+        // Build notes with available product information
+        let notes = `Barcode: ${barcode}`;
+        if (product.brands) notes += `\nBrand: ${product.brands}`;
+        
+        // Add nutritional information if available
+        if (product.nutriments) {
+          const n = product.nutriments;
+          notes += '\n\nNutrition (per 100g):';
+          if (n['energy-kcal_100g']) notes += `\nCalories: ${Math.round(n['energy-kcal_100g'])} kcal`;
+          if (n.fat_100g) notes += `\nFat: ${n.fat_100g}g`;
+          if (n['saturated-fat_100g']) notes += `\n  Saturated: ${n['saturated-fat_100g']}g`;
+          if (n.carbohydrates_100g) notes += `\nCarbs: ${n.carbohydrates_100g}g`;
+          if (n.sugars_100g) notes += `\n  Sugars: ${n.sugars_100g}g`;
+          if (n.fiber_100g) notes += `\n  Fiber: ${n.fiber_100g}g`;
+          if (n.proteins_100g) notes += `\nProtein: ${n.proteins_100g}g`;
+          if (n.salt_100g) notes += `\nSalt: ${n.salt_100g}g`;
+          if (n.sodium_100g) notes += `\nSodium: ${Math.round(n.sodium_100g * 1000)}mg`;
+        }
+        
+        // Try to extract quantity and unit from product data
+        let suggestedQuantity = '1';
+        let suggestedUnit = 'unit';
+        
+        if (product.quantity) {
+          const qtyStr = product.quantity.toLowerCase();
+          // Parse common formats like "16 oz", "1 lb", "500 ml"
+          const match = qtyStr.match(/(\d+\.?\d*)\s*([a-z]+)/);
+          if (match) {
+            suggestedQuantity = match[1];
+            const unit = match[2];
+            // Map common units
+            if (['oz', 'ounce', 'ounces'].includes(unit)) suggestedUnit = 'oz';
+            else if (['lb', 'lbs', 'pound', 'pounds'].includes(unit)) suggestedUnit = 'lb';
+            else if (['g', 'gram', 'grams'].includes(unit)) suggestedUnit = 'g';
+            else if (['kg', 'kilogram', 'kilograms'].includes(unit)) suggestedUnit = 'kg';
+            else if (['ml', 'milliliter', 'milliliters'].includes(unit)) suggestedUnit = 'ml';
+            else if (['l', 'liter', 'liters'].includes(unit)) suggestedUnit = 'l';
+          }
+        }
 
         setFormData(prev => ({
           ...prev,
           name: productName,
-          notes: `Barcode: ${barcode}${product.brands ? `\nBrand: ${product.brands}` : ''}`,
+          quantity: suggestedQuantity,
+          unit: suggestedUnit,
+          notes: notes,
         }));
         setProductFound(true);
       } else {
-        setFormData(prev => ({ ...prev, notes: `Barcode: ${barcode} (Product not found in database)` }));
+        // Product not found - save barcode for manual entry
+        setFormData(prev => ({ 
+          ...prev, 
+          notes: `Barcode: ${barcode}\n\nProduct not found in Open Food Facts database. Please enter details manually.` 
+        }));
         setProductFound(false);
       }
     } catch (error) {
       console.error('Error looking up product:', error);
-      setFormData(prev => ({ ...prev, notes: `Barcode: ${barcode}` }));
+      setFormData(prev => ({ 
+        ...prev, 
+        notes: `Barcode: ${barcode}\n\nError looking up product. Please enter details manually.` 
+      }));
       setProductFound(false);
     } finally {
       setLookingUpProduct(false);
@@ -139,7 +196,8 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
     try {
       setScanning(true);
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait for DOM to be ready
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       const html5QrCode = new Html5Qrcode('barcode-reader');
       scannerRef.current = html5QrCode;
@@ -148,9 +206,20 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: { width: 300, height: 150 },
+          // @ts-ignore - formatsToSupport exists but not in type definitions
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+          ],
         },
         (decodedText) => {
+          console.log('Scanned barcode:', decodedText);
           setScannedBarcode(decodedText);
           stopScanner();
           lookupProduct(decodedText);
@@ -159,8 +228,16 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
       );
     } catch (error) {
       console.error('Error starting scanner:', error);
-      alert(`Unable to start camera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      toast({
+        title: 'Camera Error',
+        description: `Unable to start camera: ${errorMessage}. Please make sure camera permissions are enabled.`,
+        variant: 'destructive',
+      });
+      
       setScanning(false);
+      scannerRef.current = null;
     }
   };
 
@@ -466,6 +543,49 @@ export function AddPantryItemDialog({ open, onOpenChange, onSuccess }: AddPantry
 
           <TabsContent value="scan">
             <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Manual Barcode Entry</Label>
+                <p className="text-sm text-muted-foreground">
+                  Type or paste a barcode number
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Enter barcode number"
+                    value={manualBarcode}
+                    onChange={(e) => setManualBarcode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && manualBarcode.trim()) {
+                        setScannedBarcode(manualBarcode.trim());
+                        lookupProduct(manualBarcode.trim());
+                        setManualBarcode('');
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={() => {
+                      if (manualBarcode.trim()) {
+                        setScannedBarcode(manualBarcode.trim());
+                        lookupProduct(manualBarcode.trim());
+                        setManualBarcode('');
+                      }
+                    }}
+                    disabled={!manualBarcode.trim() || lookingUpProduct}
+                    type="button"
+                  >
+                    Lookup
+                  </Button>
+                </div>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">Or scan with camera</span>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>Scan Product Barcode</Label>
                 <p className="text-sm text-muted-foreground">
