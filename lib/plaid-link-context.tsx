@@ -14,24 +14,6 @@ interface PlaidLinkContextType {
 const PlaidLinkContext = createContext<PlaidLinkContextType | undefined>(undefined);
 
 export function PlaidLinkProvider({ children }: { children: ReactNode }) {
-  const [isClient, setIsClient] = useState(false);
-
-  // Detect if we're on client side - DO NOT render anything until client-side
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  // During SSR/build, just render children without Plaid functionality
-  if (!isClient) {
-    return <>{children}</>;
-  }
-
-  // Only render the actual provider on client-side
-  return <PlaidLinkProviderClient>{children}</PlaidLinkProviderClient>;
-}
-
-// Client-only provider that uses the Plaid hook
-function PlaidLinkProviderClient({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
