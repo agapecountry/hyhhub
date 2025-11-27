@@ -77,6 +77,43 @@ export default function DebtDetailPage() {
     }
   }, [currentHousehold, debtId]);
 
+  const updateDebtBalance = async () => {
+    if (!debtId) return;
+
+    try {
+      // Get all payments for this debt
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('debt_payments')
+        .select('amount')
+        .eq('debt_id', debtId);
+
+      if (paymentsError) throw paymentsError;
+
+      // Get the debt's original balance
+      const { data: debtData, error: debtError } = await supabase
+        .from('debts')
+        .select('original_balance')
+        .eq('id', debtId)
+        .single();
+
+      if (debtError) throw debtError;
+
+      // Calculate new current balance
+      const totalPayments = (paymentsData || []).reduce((sum, p) => sum + p.amount, 0);
+      const newBalance = debtData.original_balance - totalPayments;
+
+      // Update the debt's current balance
+      const { error: updateError } = await supabase
+        .from('debts')
+        .update({ current_balance: newBalance })
+        .eq('id', debtId);
+
+      if (updateError) throw updateError;
+    } catch (error: any) {
+      console.error('Error updating debt balance:', error);
+    }
+  };
+
   const loadDebtData = async () => {
     if (!currentHousehold || !debtId) return;
 
@@ -146,6 +183,9 @@ export default function DebtDetailPage() {
 
       if (error) throw error;
 
+      // Update the debt's current balance
+      await updateDebtBalance();
+
       toast({
         title: 'Success',
         description: 'Payment updated successfully',
@@ -191,6 +231,9 @@ export default function DebtDetailPage() {
         .eq('id', deletingPayment.id);
 
       if (error) throw error;
+
+      // Update the debt's current balance
+      await updateDebtBalance();
 
       toast({
         title: 'Success',

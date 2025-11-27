@@ -18,7 +18,7 @@ interface Debt {
   id: string;
   name: string;
   current_balance: number;
-  debt_type?: string;
+  type?: string;
 }
 
 export function Budget503020() {
@@ -27,13 +27,43 @@ export function Budget503020() {
   const [creditCardDebt, setCreditCardDebt] = useState(0);
   const [otherLoans, setOtherLoans] = useState(0);
   const [assets, setAssets] = useState(0);
+  const [monthlyBills, setMonthlyBills] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (currentHousehold) {
       loadFinancialData();
     }
   }, [currentHousehold]);
+
+  const saveBudgetData = async (data: { annualIncome: number; assets: number }) => {
+    if (!currentHousehold) return;
+
+    try {
+      await supabase
+        .from('household_preferences')
+        .upsert({
+          household_id: currentHousehold.id,
+          preference_key: 'budget_503020_data',
+          preference_value: data,
+        }, {
+          onConflict: 'household_id,preference_key'
+        });
+    } catch (error) {
+      console.error('Error saving budget data:', error);
+    }
+  };
+
+  const debouncedSave = (income: number, assetValue: number) => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    const timeout = setTimeout(() => {
+      saveBudgetData({ annualIncome: income, assets: assetValue });
+    }, 1000); // Save 1 second after user stops typing
+    setSaveTimeout(timeout);
+  };
 
   const loadFinancialData = async () => {
     if (!currentHousehold) return;
@@ -51,49 +81,122 @@ export function Budget503020() {
       if (incomeError) throw incomeError;
 
       // Calculate annual income from monthly sources
-      const totalMonthlyIncome = incomeData?.reduce((sum, source) => sum + source.monthly_amount, 0) || 0;
+      let totalMonthlyIncome = incomeData?.reduce((sum, source) => sum + source.monthly_amount, 0) || 0;
+
+      // If no income sources, try loading from paycheck settings
+      if (totalMonthlyIncome === 0) {
+        const { data: paychecksData, error: paychecksError } = await supabase
+          .from('paycheck_settings')
+          .select('net_pay_amount, payment_frequency')
+          .eq('household_id', currentHousehold.id);
+
+        if (!paychecksError && paychecksData && paychecksData.length > 0) {
+          // Calculate monthly income from all paycheck settings
+          totalMonthlyIncome = paychecksData.reduce((sum, paycheck) => {
+            let monthlyAmount = 0;
+            switch (paycheck.payment_frequency) {
+              case 'weekly':
+                monthlyAmount = paycheck.net_pay_amount * 4.33;
+                break;
+              case 'biweekly':
+                monthlyAmount = paycheck.net_pay_amount * 2.17;
+                break;
+              case 'semimonthly':
+                monthlyAmount = paycheck.net_pay_amount * 2;
+                break;
+              case 'monthly':
+                monthlyAmount = paycheck.net_pay_amount;
+                break;
+              default:
+                monthlyAmount = paycheck.net_pay_amount;
+            }
+            return sum + monthlyAmount;
+          }, 0);
+        }
+      }
+
       const calculatedAnnualIncome = totalMonthlyIncome * 12;
-      if (calculatedAnnualIncome > 0) {
-        setAnnualIncome(calculatedAnnualIncome);
+      
+      // Load saved budget data
+      const { data: budgetData } = await supabase
+        .from('household_preferences')
+        .select('preference_value')
+        .eq('household_id', currentHousehold.id)
+        .eq('preference_key', 'budget_503020_data')
+        .maybeSingle();
+
+      if (budgetData && budgetData.preference_value) {
+        const saved = budgetData.preference_value as any;
+        setAnnualIncome(saved.annualIncome || calculatedAnnualIncome || 65000);
+        setAssets(saved.assets || 0);
+        // Don't override auto-calculated debts and bills
+      } else {
+        // Use calculated or default
+        setAnnualIncome(calculatedAnnualIncome > 0 ? calculatedAnnualIncome : 65000);
       }
 
       // Load debts
       const { data: debtsData, error: debtsError } = await supabase
         .from('debts')
-        .select('name, current_balance, debt_type, category_id')
+        .select('name, current_balance, type')
         .eq('household_id', currentHousehold.id)
         .eq('is_active', true);
 
       if (debtsError) throw debtsError;
 
-      // Load transaction categories to get the Credit Card category
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from('transaction_categories')
-        .select('id, name')
-        .eq('household_id', currentHousehold.id);
-
-      if (categoriesError) throw categoriesError;
-
-      // Find the Credit Card category ID
-      const creditCardCategory = categoriesData?.find((cat: any) => 
-        cat.name.toLowerCase().includes('credit') && cat.name.toLowerCase().includes('card')
-      );
-
-      // Separate credit card debt from other loans based on category
+      // Separate credit card debt from other loans based on debt type
       let ccDebt = 0;
       let loans = 0;
 
       debtsData?.forEach((debt: any) => {
-        // Check if the debt's category_id matches the Credit Card category
-        if (creditCardCategory && debt.category_id === creditCardCategory.id) {
+        const debtType = debt.type?.toLowerCase() || '';
+        // Check if debt type is credit card
+        if (debtType.includes('credit') || debtType === 'credit_card') {
           ccDebt += debt.current_balance;
         } else {
+          // All other debt types (auto loan, mortgage, student loan, personal loan, etc.)
           loans += debt.current_balance;
         }
       });
 
       setCreditCardDebt(ccDebt);
       setOtherLoans(loans);
+
+      // Load bills to calculate monthly recurring expenses (needs)
+      const { data: billsData, error: billsError } = await supabase
+        .from('bills')
+        .select('amount, frequency')
+        .eq('household_id', currentHousehold.id)
+        .eq('is_active', true);
+
+      if (billsError) throw billsError;
+
+      // Calculate monthly bills amount based on frequency
+      const totalMonthlyBills = billsData?.reduce((sum, bill) => {
+        let monthlyAmount = 0;
+        switch (bill.frequency) {
+          case 'weekly':
+            monthlyAmount = bill.amount * 4.33; // Average weeks per month
+            break;
+          case 'biweekly':
+            monthlyAmount = bill.amount * 2.17; // Average biweekly periods per month
+            break;
+          case 'monthly':
+            monthlyAmount = bill.amount;
+            break;
+          case 'quarterly':
+            monthlyAmount = bill.amount / 3;
+            break;
+          case 'annual':
+            monthlyAmount = bill.amount / 12;
+            break;
+          default:
+            monthlyAmount = bill.amount; // Default to treating as monthly
+        }
+        return sum + monthlyAmount;
+      }, 0) || 0;
+
+      setMonthlyBills(totalMonthlyBills);
 
       // TODO: Add assets tracking if available in database
       // For now, allow manual entry
@@ -130,13 +233,18 @@ export function Budget503020() {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: true, // Explicitly enable comma separators
     }).format(amount);
   };
 
-  const formatDecimal = (num: number) => {
-    return num.toFixed(2);
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: true,
+    }).format(num);
   };
 
   if (loading) {
@@ -174,16 +282,24 @@ export function Budget503020() {
 
           {/* Income Input */}
           <div className="space-y-2">
-            <Label htmlFor="annual-income">Enter your total annual income after taxes:</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="annual-income">Total annual income after taxes:</Label>
+              {annualIncome > 0 && (
+                <span className="text-xl font-bold text-emerald-600">{formatCurrency(annualIncome)}</span>
+              )}
+            </div>
             <div className="relative">
               <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 id="annual-income"
-                type="number"
-                value={annualIncome}
-                onChange={(e) => setAnnualIncome(parseFloat(e.target.value) || 0)}
-                className="pl-9 text-lg font-semibold"
-                step="1000"
+                type="text"
+                value={formatCurrency(annualIncome).replace('$', '')}
+                onChange={(e) => {
+                  const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
+                  setAnnualIncome(numValue);
+                  debouncedSave(numValue, assets);
+                }}
+                className="pl-9"
               />
             </div>
           </div>
@@ -224,19 +340,26 @@ export function Budget503020() {
           {/* Credit Card Debt */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label htmlFor="cc-debt" className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-rose-600" />
-                Enter your total credit card debt:
-              </Label>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="cc-debt" className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-rose-600" />
+                  Total credit card debt:
+                </Label>
+                {creditCardDebt > 0 && (
+                  <span className="text-lg font-bold text-rose-600">{formatCurrency(creditCardDebt)}</span>
+                )}
+              </div>
               <div className="relative w-48">
                 <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="cc-debt"
-                  type="number"
-                  value={creditCardDebt}
-                  onChange={(e) => setCreditCardDebt(parseFloat(e.target.value) || 0)}
+                  type="text"
+                  value={formatCurrency(creditCardDebt).replace('$', '')}
+                  onChange={(e) => {
+                    const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
+                    setCreditCardDebt(numValue);
+                  }}
                   className="pl-9"
-                  step="100"
                 />
               </div>
             </div>
@@ -245,7 +368,7 @@ export function Budget503020() {
                 <CardContent className="pt-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">You could eliminate all credit card debt in:</span>
-                    <span className="text-lg font-bold text-rose-600">{formatDecimal(monthsToCCPayoff)} months</span>
+                    <span className="text-lg font-bold text-rose-600">{formatNumber(monthsToCCPayoff)} months</span>
                   </div>
                 </CardContent>
               </Card>
@@ -261,7 +384,7 @@ export function Budget503020() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Using entire saving allocation, fully funded in:</span>
-                <span className="text-lg font-bold text-amber-700">{formatDecimal(monthsToEmergencyFund)} months</span>
+                <span className="text-lg font-bold text-amber-700">{formatNumber(monthsToEmergencyFund)} months</span>
               </div>
             </CardContent>
           </Card>
@@ -269,19 +392,26 @@ export function Budget503020() {
           {/* Other Loans */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label htmlFor="other-loans" className="flex items-center gap-2">
-                <Home className="h-4 w-4 text-blue-600" />
-                Total student, car, mortgage, personal and other loans:
-              </Label>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="other-loans" className="flex items-center gap-2">
+                  <Home className="h-4 w-4 text-blue-600" />
+                  Total student, car, mortgage, personal and other loans:
+                </Label>
+                {otherLoans > 0 && (
+                  <span className="text-lg font-bold text-blue-600">{formatCurrency(otherLoans)}</span>
+                )}
+              </div>
               <div className="relative w-48">
                 <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="other-loans"
-                  type="number"
-                  value={otherLoans}
-                  onChange={(e) => setOtherLoans(parseFloat(e.target.value) || 0)}
+                  type="text"
+                  value={formatCurrency(otherLoans).replace('$', '')}
+                  onChange={(e) => {
+                    const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
+                    setOtherLoans(numValue);
+                  }}
                   className="pl-9"
-                  step="1000"
                 />
               </div>
             </div>
@@ -290,7 +420,7 @@ export function Budget503020() {
                 <CardContent className="pt-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">You could eliminate all loans in:</span>
-                    <span className="text-lg font-bold text-blue-600">{formatDecimal(yearsToLoanPayoff)} years</span>
+                    <span className="text-lg font-bold text-blue-600">{formatNumber(yearsToLoanPayoff)} years</span>
                   </div>
                 </CardContent>
               </Card>
@@ -308,11 +438,14 @@ export function Budget503020() {
                 <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="assets"
-                  type="number"
-                  value={assets}
-                  onChange={(e) => setAssets(parseFloat(e.target.value) || 0)}
+                  type="text"
+                  value={formatCurrency(assets).replace('$', '')}
+                  onChange={(e) => {
+                    const numValue = parseFloat(e.target.value.replace(/,/g, '')) || 0;
+                    setAssets(numValue);
+                    debouncedSave(annualIncome, numValue);
+                  }}
                   className="pl-9"
-                  step="1000"
                 />
               </div>
             </div>
