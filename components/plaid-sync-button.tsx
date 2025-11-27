@@ -21,20 +21,20 @@ export function PlaidSyncButton({ plaidItemId, onSuccess, variant = 'outline', s
     setSyncing(true);
     
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { user } } = await supabase.auth.getUser();
       
-      if (!session) {
+      if (!user) {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/plaid-sync-transactions`, {
+      const response = await fetch('/api/plaid/sync', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          plaid_item_id: plaidItemId,
+          itemId: plaidItemId,
+          userId: user.id,
         }),
       });
 
@@ -46,7 +46,7 @@ export function PlaidSyncButton({ plaidItemId, onSuccess, variant = 'outline', s
 
       toast({
         title: 'Success',
-        description: `Synced ${result.synced} transactions`,
+        description: `Synced ${result.added} new, ${result.modified} modified, ${result.removed} removed transactions`,
       });
 
       if (onSuccess) {
