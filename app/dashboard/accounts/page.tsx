@@ -22,7 +22,6 @@ import { useRouter } from 'next/navigation';
 import { PageHelpDialog } from '@/components/page-help-dialog';
 import { pageHelpContent } from '@/lib/page-help-content';
 import { PlaidLinkButton } from '@/components/plaid-link-button';
-import { PlaidLinkProvider } from '@/lib/plaid-link-context';
 import { SearchableCategorySelect } from '@/components/searchable-category-select';
 import { IconPicker } from '@/components/icon-picker';
 
@@ -601,8 +600,7 @@ export default function AccountsPage() {
   }
 
   return (
-    <PlaidLinkProvider>
-      <DashboardLayout>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -1210,6 +1208,5 @@ export default function AccountsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </DashboardLayout>
-    </PlaidLinkProvider>
   );
 }

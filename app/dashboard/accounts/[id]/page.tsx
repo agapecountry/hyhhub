@@ -16,7 +16,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ArrowLeft, Plus, Download, Trash2, CreditCard as Edit2, Link2, RefreshCw, Users, Check, X, Filter } from 'lucide-react';
 import { ManagePayeesDialog } from '@/components/manage-payees-dialog';
 import { PlaidSyncButton } from '@/components/plaid-sync-button';
-import { PlaidLinkProvider } from '@/lib/plaid-link-context';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
@@ -932,13 +931,11 @@ export default function AccountDetailPage() {
 
   if (loading || !account) {
     return (
-      <PlaidLinkProvider>
-        <DashboardLayout>
-          <div className="flex items-center justify-center h-96">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        </DashboardLayout>
-      </PlaidLinkProvider>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-96">
+          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
     );
   }
 
@@ -959,9 +956,8 @@ export default function AccountDetailPage() {
   }, [] as any[]).reverse();
 
   return (
-    <PlaidLinkProvider>
-      <DashboardLayout>
-        <div className="space-y-6">
+    <DashboardLayout>
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/accounts')}>
@@ -1681,8 +1677,7 @@ export default function AccountDetailPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        </div>
-      </DashboardLayout>
-    </PlaidLinkProvider>
+      </div>
+    </DashboardLayout>
   );
 }
