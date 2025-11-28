@@ -783,17 +783,16 @@ export default function AccountDetailPage() {
         }
       }
 
-      // If payee is linked to a bill, fetch bill amount and category
+      // If payee is linked to a bill, fetch bill category (but not amount)
       if (payee.bill_id) {
         try {
           const { data: bill, error } = await supabase
             .from('bills')
-            .select('amount, category_id')
+            .select('category_id')
             .eq('id', payee.bill_id)
             .maybeSingle();
 
           if (!error && bill) {
-            amount = bill.amount.toString();
             // Get category ID from bill
             if (bill.category_id) {
               categoryId = bill.category_id;

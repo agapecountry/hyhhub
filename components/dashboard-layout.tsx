@@ -6,7 +6,7 @@ import { useSubscription } from '@/lib/subscription-context';
 import { Button } from '@/components/ui/button';
 import { HouseholdSwitcher } from './household-switcher';
 import { CustomizeNavigationDialog } from './customize-navigation-dialog';
-import { Chrome as Home, DollarSign, CreditCard, ChefHat, Package, Calendar, SquareCheck as CheckSquare, LogOut, Menu, User, Building2, Crown, TrendingUp, Target, Wallet, PanelLeftClose, PanelLeft, BookOpen } from 'lucide-react';
+import { Chrome as Home, DollarSign, CreditCard, ChefHat, Package, Calendar, SquareCheck as CheckSquare, LogOut, Menu, User, Building2, Crown, TrendingUp, Target, Wallet, PanelLeftClose, PanelLeft, BookOpen, MessageCircle } from 'lucide-react';
 import { HYHIcon } from './hyh-logo';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -168,6 +168,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <Button variant="ghost" size="icon" asChild title="Profile" className="touch-target">
             <Link href="/dashboard/profile">
               <User className="h-5 w-5" />
+            </Link>
+          </Button>
+
+          <Button variant="ghost" size="icon" asChild title="Help & Community" className="touch-target">
+            <Link href="/dashboard/forum">
+              <MessageCircle className="h-5 w-5" />
             </Link>
           </Button>
 
