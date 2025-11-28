@@ -44,9 +44,10 @@ export function PlaidSyncButton({ plaidItemId, onSuccess, variant = 'outline', s
         throw new Error(result.error || 'Failed to sync transactions');
       }
 
+      const matchInfo = result.matched > 0 ? `, matched ${result.matched} duplicates` : '';
       toast({
         title: 'Success',
-        description: `Synced ${result.synced} transactions`,
+        description: `Synced ${result.synced} transactions${matchInfo}`,
       });
 
       if (onSuccess) {

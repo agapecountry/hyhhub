@@ -463,7 +463,7 @@ export default function AccountDetailPage() {
         category_id: isTransfer ? transferCategoryId : (transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null),
         notes: transactionForm.notes || null,
         is_pending: transactionForm.is_pending,
-        is_cleared: !transactionForm.is_pending,
+        is_cleared: transactionForm.is_cleared,
         debt_id: transactionForm.debt_id || null,
         payee_id: transactionForm.payee_id || null,
       };
@@ -943,14 +943,16 @@ export default function AccountDetailPage() {
     ? transactions.filter(t => !t.is_cleared)
     : transactions;
 
-  const clearedBalance = (account.balance || 0) - transactions
+  const accountBalance = typeof account.balance === 'number' ? account.balance : 0;
+  
+  const clearedBalance = accountBalance - transactions
     .filter(t => !t.is_cleared)
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const workingBalance = account.balance || 0;
+  const workingBalance = accountBalance;
 
   const runningBalance = [...filteredTransactions].reverse().reduce((acc, transaction, index) => {
-    const balance = index === 0 ? (account.balance - filteredTransactions.reduce((sum, t) => sum + t.amount, 0) + transaction.amount) : acc[index - 1].balance + transaction.amount;
+    const balance = index === 0 ? (accountBalance - filteredTransactions.reduce((sum, t) => sum + t.amount, 0) + transaction.amount) : acc[index - 1].balance + transaction.amount;
     acc.push({ ...transaction, balance });
     return acc;
   }, [] as any[]).reverse();
@@ -987,17 +989,16 @@ export default function AccountDetailPage() {
                 onSuccess={handleSyncPlaidSuccess}
               />
             )}
-            {!isPlaidAccount && (
-              <Dialog open={addDialogOpen} onOpenChange={(open) => {
-                setAddDialogOpen(open);
-                if (!open) resetTransactionForm();
-              }}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Transaction
-                  </Button>
-                </DialogTrigger>
+            <Dialog open={addDialogOpen} onOpenChange={(open) => {
+              setAddDialogOpen(open);
+              if (!open) resetTransactionForm();
+            }}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Transaction
+                </Button>
+              </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Add Transaction</DialogTitle>
@@ -1239,7 +1240,6 @@ export default function AccountDetailPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-            )}
           </div>
         </div>
 

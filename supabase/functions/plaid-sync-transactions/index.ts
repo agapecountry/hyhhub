@@ -370,6 +370,33 @@ serve(async (req) => {
 
     console.log(`Successfully synced: ${insertedCount} upserted, ${removedCount} removed, ${userModifiedIds.size} user-modified preserved`);
 
+    // Auto-match newly synced transactions with existing manual transactions
+    let matchedCount = 0;
+    try {
+      console.log('Running auto-match for newly synced transactions...');
+      const { data: accounts } = await supabaseClient
+        .from('accounts')
+        .select('id')
+        .eq('plaid_item_id', plaid_item_id);
+      
+      if (accounts && accounts.length > 0) {
+        for (const account of accounts) {
+          const { data: matchCount, error: matchError } = await supabaseClient
+            .rpc('auto_match_new_transactions', {
+              p_account_id: account.id
+            });
+          
+          if (!matchError && matchCount) {
+            matchedCount += matchCount;
+          }
+        }
+        console.log(`Auto-matched ${matchedCount} transactions`);
+      }
+    } catch (matchError) {
+      console.error('Error during auto-match:', matchError);
+      // Don't fail the sync if matching fails
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -378,6 +405,7 @@ serve(async (req) => {
         removed: removedCount,
         synced: insertedCount,
         user_modified_preserved: userModifiedIds.size,
+        matched: matchedCount,
       }),
       {
         headers: {
