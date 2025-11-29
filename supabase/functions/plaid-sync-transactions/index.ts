@@ -155,13 +155,13 @@ serve(async (req) => {
     // Load bills and debts for auto-matching
     const { data: bills } = await supabaseClient
       .from('bills')
-      .select('id, name, payee_id, amount, due_day, category_id')
+      .select('id, name, company, payee_id, amount, due_day, category_id, institution, merchant_name, matching_keywords')
       .eq('household_id', plaidItem.household_id)
       .eq('is_active', true);
 
     const { data: debts } = await supabaseClient
       .from('debts')
-      .select('id, name, creditor, minimum_payment, category_id')
+      .select('id, name, creditor, minimum_payment, category_id, institution, merchant_name, matching_keywords')
       .eq('household_id', plaidItem.household_id);
 
     const { data: categories } = await supabaseClient
@@ -200,23 +200,51 @@ serve(async (req) => {
       // Try to match to bills first
       if (bills && bills.length > 0) {
         for (const bill of bills) {
-          const nameSim = similarity(txName, bill.name);
+          // Calculate name similarity against multiple fields
+          const nameSim = Math.max(
+            similarity(txName, bill.name),
+            bill.company ? similarity(txName, bill.company) : 0,
+            bill.merchant_name ? similarity(txName, bill.merchant_name) : 0,
+            bill.institution ? similarity(txName, bill.institution) : 0
+          );
+          
+          // Check if any keywords match
+          let keywordMatch = false;
+          if (bill.matching_keywords && Array.isArray(bill.matching_keywords)) {
+            keywordMatch = bill.matching_keywords.some(kw => 
+              txName.toLowerCase().includes(kw.toLowerCase())
+            );
+          }
+          
           const amountMatch = Math.abs(txAmount - bill.amount) < 1.0; // Within $1
           const dayDiff = Math.abs(txDate.getDate() - bill.due_day);
           const dateMatch = dayDiff <= 3; // Within 3 days of due date
 
-          if (nameSim > 0.7 && amountMatch && dateMatch) {
+          // High confidence: good name match + amount + date, or keyword match + amount + date
+          if ((nameSim > 0.7 || keywordMatch) && amountMatch && dateMatch) {
             billId = bill.id;
             categoryId = bill.category_id;
             autoMatched = true;
             matchConfidence = 'high';
-            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (high confidence)`);
+            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (high confidence, nameSim: ${nameSim}, keyword: ${keywordMatch})`);
             break;
-          } else if (nameSim > 0.6 && (amountMatch || dateMatch)) {
+          } 
+          // Medium confidence: decent name match + amount or date
+          else if (nameSim > 0.6 && (amountMatch || dateMatch)) {
             billId = bill.id;
             categoryId = bill.category_id;
             autoMatched = true;
             matchConfidence = 'medium';
+            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (medium confidence, nameSim: ${nameSim})`);
+            break;
+          }
+          // Low confidence: keyword match + amount
+          else if (keywordMatch && amountMatch) {
+            billId = bill.id;
+            categoryId = bill.category_id;
+            autoMatched = true;
+            matchConfidence = 'low';
+            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (low confidence, keyword match)`);
             break;
           }
         }
@@ -225,24 +253,49 @@ serve(async (req) => {
       // If no bill match, try debts
       if (!billId && debts && debts.length > 0) {
         for (const debt of debts) {
+          // Calculate name similarity against multiple fields
           const nameSim = Math.max(
             similarity(txName, debt.name),
-            debt.creditor ? similarity(txName, debt.creditor) : 0
+            debt.creditor ? similarity(txName, debt.creditor) : 0,
+            debt.merchant_name ? similarity(txName, debt.merchant_name) : 0,
+            debt.institution ? similarity(txName, debt.institution) : 0
           );
+          
+          // Check if any keywords match
+          let keywordMatch = false;
+          if (debt.matching_keywords && Array.isArray(debt.matching_keywords)) {
+            keywordMatch = debt.matching_keywords.some(kw => 
+              txName.toLowerCase().includes(kw.toLowerCase())
+            );
+          }
+          
           const amountMatch = Math.abs(txAmount - debt.minimum_payment) < 1.0;
 
-          if (nameSim > 0.7 && amountMatch) {
+          // High confidence: good name match + amount, or keyword match + amount
+          if ((nameSim > 0.7 || keywordMatch) && amountMatch) {
             debtId = debt.id;
             categoryId = debt.category_id;
             autoMatched = true;
             matchConfidence = 'high';
-            console.log(`Matched transaction "${txName}" to debt "${debt.name}" (high confidence)`);
+            console.log(`Matched transaction "${txName}" to debt "${debt.name}" (high confidence, nameSim: ${nameSim}, keyword: ${keywordMatch})`);
             break;
-          } else if (nameSim > 0.6) {
+          } 
+          // Medium confidence: decent name match
+          else if (nameSim > 0.6) {
             debtId = debt.id;
             categoryId = debt.category_id;
             autoMatched = true;
             matchConfidence = 'medium';
+            console.log(`Matched transaction "${txName}" to debt "${debt.name}" (medium confidence, nameSim: ${nameSim})`);
+            break;
+          }
+          // Low confidence: keyword match only
+          else if (keywordMatch) {
+            debtId = debt.id;
+            categoryId = debt.category_id;
+            autoMatched = true;
+            matchConfidence = 'low';
+            console.log(`Matched transaction "${txName}" to debt "${debt.name}" (low confidence, keyword match)`);
             break;
           }
         }
