@@ -42,16 +42,18 @@ export default function NewThreadPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
 
   useEffect(() => {
     loadCategories();
+    checkModeratorStatus();
     
     // Pre-select category from query param
     const categoryParam = searchParams.get('category');
     if (categoryParam) {
       setSelectedCategory(categoryParam);
     }
-  }, [searchParams]);
+  }, [searchParams, user]);
 
   const loadCategories = async () => {
     try {
@@ -65,6 +67,24 @@ export default function NewThreadPage() {
       setCategories(data || []);
     } catch (error) {
       console.error('Error loading categories:', error);
+    }
+  };
+
+  const checkModeratorStatus = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('forum_moderators')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        setIsModerator(true);
+      }
+    } catch (error) {
+      console.error('Error checking moderator status:', error);
     }
   };
 
@@ -128,8 +148,8 @@ export default function NewThreadPage() {
     }
   };
 
-  // Check access
-  const hasAccess = tier && tier.name !== 'free';
+  // Check access - allow moderators or subscribers
+  const hasAccess = isModerator || (tier && tier.name !== 'free');
   
   if (!hasAccess) {
     router.push('/dashboard/forum');

@@ -22,7 +22,8 @@ import {
   HelpCircle,
   Lightbulb,
   AlertCircle,
-  Crown
+  Crown,
+  Settings
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -68,12 +69,32 @@ export default function ForumPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [isModerator, setIsModerator] = useState(false);
 
   useEffect(() => {
     if (user && currentHousehold) {
       loadForumData();
+      checkModeratorStatus();
     }
   }, [user, currentHousehold, selectedCategory]);
+
+  const checkModeratorStatus = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('forum_moderators')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        setIsModerator(true);
+      }
+    } catch (error) {
+      console.error('Error checking moderator status:', error);
+    }
+  };
 
   const loadForumData = async () => {
     try {
@@ -112,8 +133,8 @@ export default function ForumPage() {
     }
   };
 
-  // Check if user has access to community features (free tier users don't have access)
-  const hasAccess = tier && tier.name !== 'free';
+  // Check if user has access to community features - allow moderators or subscribers
+  const hasAccess = isModerator || (tier && tier.name !== 'free');
 
   if (!hasAccess) {
     return (
@@ -189,12 +210,22 @@ export default function ForumPage() {
             <h1 className="text-3xl font-bold tracking-tight">Help & Community</h1>
             <p className="text-muted-foreground">Connect, discuss, and get support</p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/forum/faq">
-              <HelpCircle className="h-4 w-4 mr-2" />
-              FAQ & Help
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            {isModerator && (
+              <Button variant="outline" asChild>
+                <Link href="/dashboard/forum/admin/categories">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Admin
+                </Link>
+              </Button>
+            )}
+            <Button asChild>
+              <Link href="/dashboard/forum/faq">
+                <HelpCircle className="h-4 w-4 mr-2" />
+                FAQ & Help
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Categories */}

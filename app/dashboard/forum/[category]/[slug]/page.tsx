@@ -69,12 +69,32 @@ export default function ThreadPage() {
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
 
   useEffect(() => {
     if (user && params.category && params.slug) {
       loadThreadData();
+      checkModeratorStatus();
     }
   }, [user, params.category, params.slug]);
+
+  const checkModeratorStatus = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('forum_moderators')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        setIsModerator(true);
+      }
+    } catch (error) {
+      console.error('Error checking moderator status:', error);
+    }
+  };
 
   const loadThreadData = async () => {
     try {
@@ -164,8 +184,8 @@ export default function ThreadPage() {
     }
   };
 
-  // Check access
-  const hasAccess = tier && tier.name !== 'free';
+  // Check access - allow moderators or subscribers
+  const hasAccess = isModerator || (tier && tier.name !== 'free');
 
   if (!hasAccess) {
     router.push('/dashboard/forum');
