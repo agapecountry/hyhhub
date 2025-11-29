@@ -243,8 +243,8 @@ export default function AccountDetailPage() {
         })),
       ];
 
-      // Combine regular payees with account payees
-      setPayees([...payeesWithDebtNames, ...accountPayees]);
+      // Combine account payees (transfers) first, then regular payees
+      setPayees([...accountPayees, ...payeesWithDebtNames]);
     } catch (error: any) {
       console.error('Error loading payees:', error);
     }
