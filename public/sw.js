@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hyh-v1';
+const CACHE_NAME = 'hyh-v3';
 const urlsToCache = [
   '/',
   '/dashboard',

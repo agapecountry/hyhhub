@@ -889,17 +889,30 @@ export default function DebtPage() {
                           </CardDescription>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setDebtToDelete(debt);
-                          setDeleteDialogOpen(true);
-                        }}
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingDebt(debt);
+                            setAddDialogOpen(true);
+                          }}
+                          disabled={loading}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setDebtToDelete(debt);
+                            setDeleteDialogOpen(true);
+                          }}
+                          disabled={loading}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>

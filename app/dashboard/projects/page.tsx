@@ -74,14 +74,31 @@ export default function ProjectsPage() {
     if (!currentHousehold) return;
 
     try {
-      const { data, error } = await supabase
+      // Load regular accounts
+      const { data: accountsData, error: accountsError } = await supabase
         .from('accounts')
         .select('*')
         .eq('household_id', currentHousehold.id)
         .order('name');
 
-      if (error) throw error;
-      setAccounts(data || []);
+      if (accountsError) throw accountsError;
+
+      // Load Plaid accounts
+      const { data: plaidAccountsData, error: plaidError } = await supabase
+        .from('plaid_accounts')
+        .select('*')
+        .eq('household_id', currentHousehold.id)
+        .order('name');
+
+      if (plaidError) throw plaidError;
+
+      // Combine both account types
+      const allAccounts = [
+        ...(accountsData || []),
+        ...(plaidAccountsData || []),
+      ];
+
+      setAccounts(allAccounts);
     } catch (error) {
       console.error('Error fetching accounts:', error);
     }
@@ -335,11 +352,14 @@ export default function ProjectsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">None</SelectItem>
-                      {accounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name} - ${account.balance.toFixed(2)}
-                        </SelectItem>
-                      ))}
+                      {accounts.map((account) => {
+                        const balance = (account as any).balance ?? (account as any).current_balance ?? 0;
+                        return (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.name} - ${balance.toFixed(2)}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">

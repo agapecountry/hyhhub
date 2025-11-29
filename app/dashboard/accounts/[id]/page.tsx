@@ -21,9 +21,8 @@ import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import type { TransactionCategory as ImportedTransactionCategory } from '@/lib/types';
-import { SearchableCategorySelect } from '@/components/searchable-category-select';
 import { IconPicker } from '@/components/icon-picker';
-import { SearchablePayeeSelect } from '@/components/searchable-payee-select';
+import { formatCurrency } from '@/lib/format';
 
 interface Account {
   id: string;
@@ -34,6 +33,7 @@ interface Account {
   balance: number;
   color: string;
   plaid_item_id?: string;
+  is_active?: boolean;
 }
 
 interface Transaction {
@@ -70,7 +70,7 @@ interface Payee {
   default_transaction_type: 'deposit' | 'withdraw' | null;
   debt_id: string | null;
   bill_id: string | null;
-  debt_name?: string;
+  debt_name?: string | null;
   account_id?: string | null;
   is_transfer_account?: boolean;
 }
@@ -181,6 +181,7 @@ export default function AccountDetailPage() {
 
       if (error) throw error;
 
+      // Map debt names into payee objects
       const payeesWithDebtNames = (data || []).map((payee: any) => ({
         ...payee,
         debt_name: payee.debts?.name || null,
@@ -243,8 +244,8 @@ export default function AccountDetailPage() {
         })),
       ];
 
-      // Combine account payees (transfers) first, then regular payees
-      setPayees([...accountPayees, ...payeesWithDebtNames]);
+      // Combine regular payees first, then account payees (transfers)
+      setPayees([...payeesWithDebtNames, ...accountPayees]);
     } catch (error: any) {
       console.error('Error loading payees:', error);
     }
@@ -340,9 +341,8 @@ export default function AccountDetailPage() {
         .eq('household_id', currentHousehold.id)
         .single();
 
-      // If not found in manual accounts or RLS blocked, try plaid_accounts
-      // PGRST116 = not found, PGRST301 = RLS policy violation (406)
-      if (accountError && (accountError.code === 'PGRST116' || accountError.code === 'PGRST301' || accountError.code === '406')) {
+      // If not found in manual accounts or any error, try plaid_accounts
+      if (accountError || !accountData) {
         const { data: plaidData, error: plaidError } = await supabase
           .from('plaid_accounts')
           .select('*')
@@ -350,7 +350,10 @@ export default function AccountDetailPage() {
           .eq('household_id', currentHousehold.id)
           .single();
 
-        if (plaidError) throw plaidError;
+        if (plaidError) {
+          // If both queries fail, show the original error
+          throw accountError || plaidError;
+        }
         
         // Map plaid_accounts fields to match Account interface
         accountData = {
@@ -358,8 +361,6 @@ export default function AccountDetailPage() {
           balance: plaidData.current_balance || 0,
           institution: plaidData.name,
         };
-      } else if (accountError) {
-        throw accountError;
       }
 
       setAccount(accountData);
@@ -454,12 +455,13 @@ export default function AccountDetailPage() {
       const selectedPayee = payees.find(p => p.id === transactionForm.payee_id);
       const isTransfer = selectedPayee?.is_transfer_account && selectedPayee?.account_id;
 
+      const selectedPayeeForDesc = payees.find(p => p.id === transactionForm.payee_id);
       const transactionData: any = {
         account_id: accountId,
         household_id: currentHousehold.id,
         date: transactionForm.date,
         amount: amount,
-        description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
+        description: selectedPayeeForDesc ? (selectedPayeeForDesc.debt_name || selectedPayeeForDesc.name) : '',
         category_id: isTransfer ? transferCategoryId : (transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null),
         notes: transactionForm.notes || null,
         is_pending: transactionForm.is_pending,
@@ -478,7 +480,7 @@ export default function AccountDetailPage() {
             category_id: transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null,
             transaction_type: transactionForm.transaction_type,
             amount: Math.abs(rawAmount),
-            description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
+            description: selectedPayeeForDesc ? (selectedPayeeForDesc.debt_name || selectedPayeeForDesc.name) : '',
             frequency: transactionForm.recurring_frequency,
             start_date: transactionForm.date,
             end_date: transactionForm.recurring_end_date || null,
@@ -603,8 +605,9 @@ export default function AccountDetailPage() {
 
       if (isPlaidTransaction) {
         // Update plaid_transactions table and mark as user_modified
+        const payeeForEdit = payees.find(p => p.id === transactionForm.payee_id);
         const updatedName = transactionForm.payee_id 
-          ? payees.find(p => p.id === transactionForm.payee_id)?.name || editingTransaction.description
+          ? (payeeForEdit?.debt_name || payeeForEdit?.name || editingTransaction.description)
           : editingTransaction.description;
         
         // IMPORTANT: Plaid uses opposite sign convention
@@ -639,11 +642,12 @@ export default function AccountDetailPage() {
         });
       } else {
         // Update regular transactions table
+        const payeeForManualEdit = payees.find(p => p.id === transactionForm.payee_id);
         const { error } = await supabase
           .from('transactions')
           .update({
             date: transactionForm.date,
-            description: transactionForm.payee_id ? payees.find(p => p.id === transactionForm.payee_id)?.name || '' : '',
+            description: payeeForManualEdit ? (payeeForManualEdit.debt_name || payeeForManualEdit.name) : '',
             amount: amount,
             category_id: categoryId,
             notes: transactionForm.notes || null,
@@ -736,6 +740,45 @@ export default function AccountDetailPage() {
     }
   };
 
+  const handleToggleActive = async () => {
+    if (!account || !accountId) return;
+
+    try {
+      setLoading(true);
+      const newActiveStatus = !account.is_active;
+      
+      // Update in the appropriate table
+      const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
+      const { error } = await supabase
+        .from(table)
+        .update({ is_active: newActiveStatus })
+        .eq('id', accountId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `Account ${newActiveStatus ? 'reactivated' : 'marked as inactive'}`,
+      });
+
+      // Reload account data
+      await loadAccountData();
+      
+      // If marked inactive, redirect back to accounts page
+      if (!newActiveStatus) {
+        router.push('/dashboard/accounts');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update account status',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openEditDialog = (transaction: Transaction) => {
     setEditingTransaction(transaction);
     const isNegative = transaction.amount < 0;
@@ -766,20 +809,23 @@ export default function AccountDetailPage() {
         categoryId = payee.default_category_id;
       }
 
-      // If payee is linked to a debt, fetch minimum payment
-      if (payee.debt_id) {
-        try {
-          const { data: debt, error } = await supabase
-            .from('debts')
-            .select('minimum_payment')
-            .eq('id', payee.debt_id)
-            .maybeSingle();
+      // Only auto-fill amount when creating a new transaction, not when editing
+      if (!editingTransaction) {
+        // If payee is linked to a debt, fetch minimum payment
+        if (payee.debt_id) {
+          try {
+            const { data: debt, error } = await supabase
+              .from('debts')
+              .select('minimum_payment')
+              .eq('id', payee.debt_id)
+              .maybeSingle();
 
-          if (!error && debt) {
-            amount = debt.minimum_payment.toString();
+            if (!error && debt) {
+              amount = debt.minimum_payment.toString();
+            }
+          } catch (error) {
+            console.error('Error fetching debt details:', error);
           }
-        } catch (error) {
-          console.error('Error fetching debt details:', error);
         }
       }
 
@@ -942,7 +988,11 @@ export default function AccountDetailPage() {
     ? transactions.filter(t => !t.is_cleared)
     : transactions;
 
-  const accountBalance = typeof account.balance === 'number' ? account.balance : 0;
+  const accountBalance = (account?.balance !== undefined && account?.balance !== null) 
+    ? account.balance 
+    : ((account as any)?.current_balance !== undefined && (account as any)?.current_balance !== null)
+      ? (account as any).current_balance
+      : 0;
   
   const clearedBalance = accountBalance - transactions
     .filter(t => !t.is_cleared)
@@ -982,6 +1032,14 @@ export default function AccountDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant={account.is_active === false ? "default" : "outline"}
+              size="sm"
+              onClick={handleToggleActive}
+              disabled={loading}
+            >
+              {account.is_active === false ? 'Reactivate Account' : 'Mark as Inactive'}
+            </Button>
             {isPlaidAccount && account.plaid_item_id && (
               <PlaidSyncButton
                 plaidItemId={account.plaid_item_id}
@@ -1021,8 +1079,7 @@ export default function AccountDetailPage() {
                       <div>
                         <Label htmlFor="payee">Payer/Payee</Label>
                         <div className="flex gap-2">
-                          <SearchablePayeeSelect
-                            payees={payees}
+                          <Select
                             value={transactionForm.payee_id || 'none'}
                             onValueChange={(value) => {
                               if (value === 'none') {
@@ -1031,10 +1088,27 @@ export default function AccountDetailPage() {
                                 handlePayeeChange(value);
                               }
                             }}
-                            onAddNew={(name) => handleAddPayee(name)}
-                            placeholder="Select or type payee..."
-                            allowNone={true}
-                          />
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a payee" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px] overflow-y-auto">
+                              <SelectItem value="none">None</SelectItem>
+                              {payees.map((payee) => (
+                                <SelectItem key={payee.id} value={payee.id}>
+                                  <span className="flex items-center gap-2">
+                                    {payee.debt_name || payee.name}
+                                    {payee.debt_id && (
+                                      <Badge variant="outline" className="text-xs">Debt</Badge>
+                                    )}
+                                    {payee.bill_id && (
+                                      <Badge variant="outline" className="text-xs">Bill</Badge>
+                                    )}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <Button
                             type="button"
                             variant="outline"
@@ -1139,8 +1213,7 @@ export default function AccountDetailPage() {
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            <SearchableCategorySelect
-                              categories={categories}
+                            <Select
                               value={transactionForm.category || 'none'}
                               onValueChange={(value) => {
                                 console.log('Category select changed:', value);
@@ -1150,13 +1223,35 @@ export default function AccountDetailPage() {
                                   setTransactionForm({ ...transactionForm, category: value });
                                 }
                               }}
-                              placeholder="Select a category"
-                              onAddNew={() => {
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a category" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[300px] overflow-y-auto">
+                                <SelectItem value="none">None</SelectItem>
+                                {categories.map((category) => (
+                                  <SelectItem key={category.id} value={category.id}>
+                                    <span className="flex items-center gap-2">
+                                      {category.icon && <span>{category.icon}</span>}
+                                      <span>{category.name}</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
                                 console.log('Add new category button clicked');
                                 setShowAddCategory(true);
                               }}
-                              allowNone={true}
-                            />
+                              className="w-full"
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add New Category
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -1250,7 +1345,7 @@ export default function AccountDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold" style={{ color: account.color }}>
-                ${workingBalance.toFixed(2)}
+                {formatCurrency(workingBalance || 0)}
               </div>
             </CardContent>
           </Card>
@@ -1262,19 +1357,19 @@ export default function AccountDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-green-600">
-                ${clearedBalance.toFixed(2)}
+                {formatCurrency(clearedBalance || 0)}
               </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Uncleared</CardTitle>
-              <CardDescription>Pending transactions</CardDescription>
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <CardDescription>Uncleared transactions</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-orange-600">
-                ${(workingBalance - clearedBalance).toFixed(2)}
+                {formatCurrency((workingBalance || 0) - (clearedBalance || 0))}
               </div>
             </CardContent>
           </Card>
@@ -1397,19 +1492,19 @@ export default function AccountDetailPage() {
                         <TableCell className="text-right">
                           {transaction.amount < 0 && (
                             <span className="text-red-600 font-medium">
-                              ${Math.abs(transaction.amount).toFixed(2)}
+                              {formatCurrency(Math.abs(transaction.amount))}
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
                           {transaction.amount > 0 && (
                             <span className="text-green-600 font-medium">
-                              ${transaction.amount.toFixed(2)}
+                              {formatCurrency(transaction.amount)}
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ${transaction.balance.toFixed(2)}
+                          {formatCurrency(transaction.balance)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -1482,12 +1577,12 @@ export default function AccountDetailPage() {
                         <SelectTrigger>
                           <SelectValue placeholder="Select a payee" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-[300px] overflow-y-auto">
                           <SelectItem value="none">None</SelectItem>
                           {payees.map((payee) => (
                             <SelectItem key={payee.id} value={payee.id}>
                               <span className="flex items-center gap-2">
-                                {payee.name}
+                                {payee.debt_name || payee.name}
                                 {payee.debt_id && (
                                   <Badge variant="outline" className="text-xs">Debt</Badge>
                                 )}
@@ -1595,8 +1690,7 @@ export default function AccountDetailPage() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <SearchableCategorySelect
-                          categories={categories}
+                        <Select
                           value={transactionForm.category || 'none'}
                           onValueChange={(value) => {
                             if (value === 'none') {
@@ -1605,13 +1699,35 @@ export default function AccountDetailPage() {
                               setTransactionForm({ ...transactionForm, category: value });
                             }
                           }}
-                          placeholder="Select a category"
-                          onAddNew={() => {
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a category" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] overflow-y-auto">
+                            <SelectItem value="none">None</SelectItem>
+                            {categories.map((category) => (
+                              <SelectItem key={category.id} value={category.id}>
+                                <span className="flex items-center gap-2">
+                                  {category.icon && <span>{category.icon}</span>}
+                                  <span>{category.name}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
                             console.log('Add new category button clicked in edit form');
                             setShowAddCategory(true);
                           }}
-                          allowNone={true}
-                        />
+                          className="w-full"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add New Category
+                        </Button>
                       </div>
                     )}
                   </div>

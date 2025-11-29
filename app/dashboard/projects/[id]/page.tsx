@@ -71,11 +71,23 @@ export default function ProjectDetailPage() {
       setNotesForm(projectData.notes || '');
 
       if (projectData.primary_account_id) {
-        const { data: accountData } = await supabase
+        // Try regular accounts first
+        let { data: accountData } = await supabase
           .from('accounts')
           .select('*')
           .eq('id', projectData.primary_account_id)
           .maybeSingle();
+
+        // If not found, try Plaid accounts
+        if (!accountData) {
+          const { data: plaidAccountData } = await supabase
+            .from('plaid_accounts')
+            .select('*')
+            .eq('id', projectData.primary_account_id)
+            .maybeSingle();
+
+          accountData = plaidAccountData;
+        }
 
         if (accountData) {
           setAccount(accountData);
@@ -92,15 +104,27 @@ export default function ProjectDetailPage() {
         setTransactions(transactionsData);
       }
 
+      // Load regular accounts
       const { data: accountsData } = await supabase
         .from('accounts')
         .select('*')
         .eq('household_id', currentHousehold.id)
         .order('name');
 
-      if (accountsData) {
-        setAccounts(accountsData);
-      }
+      // Load Plaid accounts
+      const { data: plaidAccountsData } = await supabase
+        .from('plaid_accounts')
+        .select('*')
+        .eq('household_id', currentHousehold.id)
+        .order('name');
+
+      // Combine both account types
+      const allAccounts = [
+        ...(accountsData || []),
+        ...(plaidAccountsData || []),
+      ];
+
+      setAccounts(allAccounts);
     } catch (error) {
       console.error('Error fetching project details:', error);
     } finally {
@@ -331,7 +355,7 @@ export default function ProjectDetailPage() {
                   <div>
                     <p className="text-xs text-muted-foreground">Linked Account</p>
                     <p className="font-semibold">{account.name}</p>
-                    <p className="text-sm text-muted-foreground">${account.balance.toFixed(2)}</p>
+                    <p className="text-sm text-muted-foreground">${((account as any).balance ?? (account as any).current_balance ?? 0).toFixed(2)}</p>
                   </div>
                 </div>
               )}
@@ -577,11 +601,14 @@ export default function ProjectDetailPage() {
                                   <SelectValue placeholder="Choose an account" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {accounts.map((acc) => (
-                                    <SelectItem key={acc.id} value={acc.id}>
-                                      {acc.name} (${acc.balance.toFixed(2)})
-                                    </SelectItem>
-                                  ))}
+                                  {accounts.map((acc) => {
+                                    const balance = (acc as any).balance ?? (acc as any).current_balance ?? 0;
+                                    return (
+                                      <SelectItem key={acc.id} value={acc.id}>
+                                        {acc.name} (${balance.toFixed(2)})
+                                      </SelectItem>
+                                    );
+                                  })}
                                 </SelectContent>
                               </Select>
                             </div>

@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
+import { formatCurrency } from '@/lib/format';
 
 interface Debt {
   id: string;
@@ -45,9 +46,7 @@ interface Payment {
     id: string;
     description: string;
     account_id: string;
-    accounts: {
-      name: string;
-    } | null;
+    account_name: string | null;
   } | null;
 }
 
@@ -81,34 +80,28 @@ export default function DebtDetailPage() {
     if (!debtId) return;
 
     try {
-      // Get all payments for this debt
+      // Get all payments for this debt, sorted by date descending to get most recent first
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('debt_payments')
-        .select('amount')
-        .eq('debt_id', debtId);
+        .select('remaining_balance, payment_date')
+        .eq('debt_id', debtId)
+        .order('payment_date', { ascending: false })
+        .limit(1);
 
       if (paymentsError) throw paymentsError;
 
-      // Get the debt's original balance
-      const { data: debtData, error: debtError } = await supabase
-        .from('debts')
-        .select('original_balance')
-        .eq('id', debtId)
-        .single();
+      // Get the most recent payment's remaining_balance
+      const mostRecentPayment = paymentsData && paymentsData.length > 0 ? paymentsData[0] : null;
+      
+      if (mostRecentPayment) {
+        // Update the debt's current balance to the most recent payment's remaining balance
+        const { error: updateError } = await supabase
+          .from('debts')
+          .update({ current_balance: mostRecentPayment.remaining_balance })
+          .eq('id', debtId);
 
-      if (debtError) throw debtError;
-
-      // Calculate new current balance
-      const totalPayments = (paymentsData || []).reduce((sum, p) => sum + p.amount, 0);
-      const newBalance = debtData.original_balance - totalPayments;
-
-      // Update the debt's current balance
-      const { error: updateError } = await supabase
-        .from('debts')
-        .update({ current_balance: newBalance })
-        .eq('id', debtId);
-
-      if (updateError) throw updateError;
+        if (updateError) throw updateError;
+      }
     } catch (error: any) {
       console.error('Error updating debt balance:', error);
     }
@@ -136,15 +129,55 @@ export default function DebtDetailPage() {
           transactions (
             id,
             description,
-            account_id,
-            accounts:account_id (name)
+            account_id
           )
         `)
         .eq('debt_id', debtId)
         .order('payment_date', { ascending: false });
 
       if (paymentsError) throw paymentsError;
-      setPayments(paymentsData || []);
+
+      // Manually fetch account names for transactions
+      const paymentsWithAccountNames = await Promise.all(
+        (paymentsData || []).map(async (payment) => {
+          if (payment.transactions?.account_id) {
+            let accountName = null;
+
+            // Try regular accounts first
+            const { data: account } = await supabase
+              .from('accounts')
+              .select('name')
+              .eq('id', payment.transactions.account_id)
+              .maybeSingle();
+
+            if (account) {
+              accountName = account.name;
+            } else {
+              // Try Plaid accounts
+              const { data: plaidAccount } = await supabase
+                .from('plaid_accounts')
+                .select('name')
+                .eq('id', payment.transactions.account_id)
+                .maybeSingle();
+
+              if (plaidAccount) {
+                accountName = plaidAccount.name;
+              }
+            }
+
+            return {
+              ...payment,
+              transactions: {
+                ...payment.transactions,
+                account_name: accountName,
+              },
+            };
+          }
+          return payment;
+        })
+      );
+
+      setPayments(paymentsWithAccountNames);
     } catch (error: any) {
       console.error('Error loading debt data:', error);
       toast({
@@ -212,17 +245,38 @@ export default function DebtDetailPage() {
     try {
       setLoading(true);
 
-      // If this payment has a transaction_id, we need to handle it differently
-      if (deletingPayment.transaction_id) {
-        toast({
-          title: 'Cannot Delete',
-          description: 'This payment is linked to a transaction. Delete the transaction from the account page instead.',
-          variant: 'destructive',
-        });
-        setDeleteDialogOpen(false);
-        setDeletingPayment(null);
-        setLoading(false);
-        return;
+      // If this payment has a transaction_id, check if the account still exists
+      if (deletingPayment.transaction_id && deletingPayment.transactions?.account_id) {
+        const accountId = deletingPayment.transactions.account_id;
+        
+        // Check if account exists in either accounts or plaid_accounts table
+        const { data: manualAccount } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('id', accountId)
+          .single();
+          
+        const { data: plaidAccount } = await supabase
+          .from('plaid_accounts')
+          .select('id')
+          .eq('id', accountId)
+          .single();
+        
+        // If account still exists, prevent deletion
+        if (manualAccount || plaidAccount) {
+          toast({
+            title: 'Cannot Delete',
+            description: 'This payment is linked to a transaction. Delete the transaction from the account page instead.',
+            variant: 'destructive',
+          });
+          setDeleteDialogOpen(false);
+          setDeletingPayment(null);
+          setLoading(false);
+          return;
+        }
+        
+        // If account doesn't exist, allow deleting just the payment record
+        // Transaction remains in database as historical record
       }
 
       const { error } = await supabase
@@ -275,10 +329,14 @@ export default function DebtDetailPage() {
     );
   }
 
-  const totalPaid = debt.original_balance - debt.current_balance;
-  const progressPercent = (totalPaid / debt.original_balance) * 100;
-  const totalInterestPaid = payments.reduce((sum, p) => sum + p.interest_paid, 0);
   const totalPrincipalPaid = payments.reduce((sum, p) => sum + p.principal_paid, 0);
+  const totalInterestPaid = payments.reduce((sum, p) => sum + p.interest_paid, 0);
+  const totalPaid = totalPrincipalPaid + totalInterestPaid;
+  
+  // Use the most recent payment's remaining_balance as current balance, or debt.current_balance if no payments
+  const currentBalance = payments.length > 0 ? payments[0].remaining_balance : debt.current_balance;
+  
+  const progressPercent = ((debt.original_balance - currentBalance) / debt.original_balance) * 100;
 
   return (
     <DashboardLayout>
@@ -302,7 +360,7 @@ export default function DebtDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-red-600">
-                ${debt.current_balance.toFixed(2)}
+                {formatCurrency(currentBalance)}
               </div>
             </CardContent>
           </Card>
@@ -313,7 +371,7 @@ export default function DebtDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-muted-foreground">
-                ${debt.original_balance.toFixed(2)}
+                {formatCurrency(debt.original_balance)}
               </div>
             </CardContent>
           </Card>
@@ -324,7 +382,7 @@ export default function DebtDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-green-600">
-                ${totalPaid.toFixed(2)}
+                {formatCurrency(totalPaid)}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 {progressPercent.toFixed(1)}% paid off
@@ -341,7 +399,7 @@ export default function DebtDetailPage() {
                 {debt.interest_rate.toFixed(3)}%
               </div>
               <div className="text-sm text-muted-foreground mt-1">
-                Min: ${debt.minimum_payment.toFixed(2)}/mo
+                Min: {formatCurrency(debt.minimum_payment)}/mo
               </div>
             </CardContent>
           </Card>
@@ -357,7 +415,7 @@ export default function DebtDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                ${totalPrincipalPaid.toFixed(2)}
+                {formatCurrency(totalPrincipalPaid)}
               </div>
             </CardContent>
           </Card>
@@ -371,7 +429,7 @@ export default function DebtDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-orange-600">
-                ${totalInterestPaid.toFixed(2)}
+                {formatCurrency(totalInterestPaid)}
               </div>
             </CardContent>
           </Card>
@@ -418,9 +476,9 @@ export default function DebtDetailPage() {
                           {payment.transactions ? (
                             <div>
                               <div className="font-medium">{payment.transactions.description}</div>
-                              {payment.transactions.accounts && (
+                              {payment.transactions.account_name && (
                                 <div className="text-xs text-muted-foreground">
-                                  {payment.transactions.accounts.name}
+                                  {payment.transactions.account_name}
                                 </div>
                               )}
                             </div>
@@ -429,16 +487,16 @@ export default function DebtDetailPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ${payment.amount.toFixed(2)}
+                          {formatCurrency(payment.amount)}
                         </TableCell>
                         <TableCell className="text-right text-green-600">
-                          ${payment.principal_paid.toFixed(2)}
+                          {formatCurrency(payment.principal_paid)}
                         </TableCell>
                         <TableCell className="text-right text-orange-600">
-                          ${payment.interest_paid.toFixed(2)}
+                          {formatCurrency(payment.interest_paid)}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ${payment.remaining_balance.toFixed(2)}
+                          {formatCurrency(payment.remaining_balance)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">

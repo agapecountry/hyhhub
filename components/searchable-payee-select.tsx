@@ -102,7 +102,7 @@ export function SearchablePayeeSelect({
           >
             {selectedPayee ? (
               <span className="flex items-center gap-2">
-                <span>{selectedPayee.debt_id && selectedPayee.debt_name ? selectedPayee.debt_name : selectedPayee.name}</span>
+                <span>{selectedPayee.debt_name || selectedPayee.name}</span>
                 {selectedPayee.debt_id && (
                   <Badge variant="outline" className="text-xs">Debt</Badge>
                 )}
@@ -178,7 +178,7 @@ export function SearchablePayeeSelect({
                       )}
                     />
                     <span className="flex items-center gap-2 flex-1">
-                      <span>{payee.debt_id && payee.debt_name ? payee.debt_name : payee.name}</span>
+                      <span>{payee.debt_name || payee.name}</span>
                       {payee.debt_id && (
                         <Badge variant="outline" className="text-xs">Debt</Badge>
                       )}
