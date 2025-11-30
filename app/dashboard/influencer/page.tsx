@@ -145,6 +145,19 @@ export default function InfluencerPage() {
           </p>
         </div>
 
+        <Alert className="bg-blue-50 border-blue-200">
+          <DollarSign className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-sm space-y-2">
+            <p className="font-semibold text-blue-900">How Payouts Work:</p>
+            <ul className="list-disc list-inside space-y-1 text-blue-800">
+              <li><strong>Basic:</strong> $1 (monthly) or $5 (annual) one-time signup bonus</li>
+              <li><strong>Premium:</strong> $5 (monthly) or $10 (annual) signup + $1/mo or $10/yr recurring</li>
+              <li><strong>Elite:</strong> $10 (monthly) or $15 (annual) signup + $2/mo or $15/yr recurring</li>
+            </ul>
+            <p className="text-xs text-blue-700 mt-2">Payouts are processed monthly. Pending earnings will show as "Pending" until paid by admin.</p>
+          </AlertDescription>
+        </Alert>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
