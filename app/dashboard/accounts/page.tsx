@@ -342,6 +342,16 @@ export default function AccountsPage() {
   const handleUnlinkAccount = async () => {
     if (!accountToUnlink || !currentHousehold) return;
 
+    // Type guard: only Plaid accounts can be unlinked
+    if (accountToUnlink.source !== 'plaid') {
+      toast({
+        title: 'Error',
+        description: 'Only Plaid accounts can be unlinked',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       // Call the database function to unlink
@@ -1267,7 +1277,7 @@ export default function AccountsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unlink from Plaid</AlertDialogTitle>
             <AlertDialogDescription>
-              This will disconnect all accounts from {plaidItems.get(accountToUnlink?.plaid_item_id || '')?.institution_name || 'this bank'} from Plaid.
+              This will disconnect all accounts from {accountToUnlink?.source === 'plaid' ? plaidItems.get(accountToUnlink.plaid_item_id)?.institution_name || 'this bank' : 'this bank'} from Plaid.
               All account data and transactions will be preserved as manual accounts. You can reconnect later if needed.
             </AlertDialogDescription>
           </AlertDialogHeader>
