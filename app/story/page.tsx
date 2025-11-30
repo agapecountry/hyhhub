@@ -82,6 +82,7 @@ export default function StoryPage() {
             </div>
 
             <p>
+              So I took to the internet, and I ran across a video of a guy I follow on X talking about how to create an app, pick a problem that you have and build the app to solve it... Thanks Alex! 
               And just like that, the idea for HYH was born. One app to bring together all of the moving parts, money, meals, chores, and calendars, in one single space that actually helps you make sense of your household (or households) that's simple enough to use that even the &quot;I like writing things down&quot; lovers will use it.
             </p>
 
