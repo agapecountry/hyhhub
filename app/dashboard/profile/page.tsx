@@ -13,9 +13,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/lib/supabase';
 import { useEffect, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { CreditCard, User, Mail, Save, Shield, Globe } from 'lucide-react';
+import { CreditCard, User, Mail, Save, Shield, Globe, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface SecurityLog {
   id: string;
@@ -40,6 +50,9 @@ export default function ProfilePage() {
     timezone: 'America/New_York',
   });
   const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadUserData();
@@ -134,6 +147,49 @@ export default function ProfilePage() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      toast({
+        title: 'Error',
+        description: 'You must type DELETE to confirm',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/delete-user-account`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.error) throw new Error(result.error);
+
+      // Success - user is deleted, sign them out and redirect
+      await supabase.auth.signOut();
+      router.push('/');
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete account',
+        variant: 'destructive',
+      });
+      setDeleting(false);
     }
   };
 
@@ -348,18 +404,95 @@ export default function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Deleting your account will permanently remove all your data and household memberships.
-                This action cannot be undone.
-              </p>
-              <Button variant="destructive" disabled>
-                Delete Account (Coming Soon)
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
+                <div className="space-y-2 flex-1">
+                  <p className="font-semibold text-destructive">Permanent Account Deletion</p>
+                  <p className="text-sm text-muted-foreground">
+                    This will <strong>permanently delete</strong> your account and all associated data including:
+                  </p>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1 ml-2">
+                    <li>All household data (accounts, transactions, budgets)</li>
+                    <li>All personal information and preferences</li>
+                    <li>Subscription and billing history</li>
+                    <li>All calendar events, chores, and meal plans</li>
+                  </ul>
+                  <p className="text-sm font-semibold text-destructive mt-3">
+                    This action CANNOT be undone, even by HYH administrators.
+                  </p>
+                </div>
+              </div>
+              <Button 
+                variant="destructive" 
+                onClick={() => setDeleteDialogOpen(true)}
+                className="w-full sm:w-auto"
+              >
+                Delete My Account
               </Button>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Permanently Delete Account
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p className="font-semibold text-foreground">
+                This action is IRREVERSIBLE and PERMANENT.
+              </p>
+              <p>
+                All of your data will be permanently deleted from our servers. This includes:
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1">
+                <li>All accounts and transactions</li>
+                <li>All budgets and financial data</li>
+                <li>All household memberships</li>
+                <li>All personal information</li>
+              </ul>
+              <p className="font-semibold text-destructive">
+                Even HYH administrators cannot recover your data after deletion.
+              </p>
+              <div className="pt-2">
+                <Label htmlFor="confirm-delete" className="text-sm font-semibold">
+                  Type <span className="font-mono bg-destructive/20 px-1">DELETE</span> to confirm:
+                </Label>
+                <Input
+                  id="confirm-delete"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE here"
+                  className="mt-2"
+                  disabled={deleting}
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              onClick={() => {
+                setDeleteConfirmText('');
+                setDeleteDialogOpen(false);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={deleteConfirmText !== 'DELETE' || deleting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleting ? 'Deleting...' : 'Delete Forever'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }
