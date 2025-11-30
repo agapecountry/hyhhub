@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Users, TrendingUp, DollarSign, Copy, Check, Plus } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { formatCurrency } from '@/lib/format';
 
 export default function InfluencerPage() {
   const { user } = useAuth();
@@ -177,9 +178,9 @@ export default function InfluencerPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalEarnings.toFixed(2)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(totalEarnings)}</div>
             <p className="text-xs text-muted-foreground">
-              ${pendingEarnings.toFixed(2)} pending payout
+              {formatCurrency(pendingEarnings)} pending payout
             </p>
           </CardContent>
         </Card>
@@ -292,7 +293,7 @@ export default function InfluencerPage() {
                       {payout.billing_period}
                     </TableCell>
                     <TableCell className="font-semibold">
-                      ${(payout.payout_amount_cents / 100).toFixed(2)}
+                      {formatCurrency(payout.payout_amount_cents / 100)}
                     </TableCell>
                     <TableCell>
                       <Badge variant={payout.is_paid ? 'default' : 'secondary'}>
