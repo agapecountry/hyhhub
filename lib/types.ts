@@ -324,7 +324,7 @@ export interface PlaidConnection {
   id: string;
   household_id: string;
   plaid_item_id: string;
-  plaid_access_token: string;
+  plaid_access_token?: string; // Optional - not exposed to frontend for security
   institution_name: string;
   institution_id: string;
   last_refresh: string | null;
