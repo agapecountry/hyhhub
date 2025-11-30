@@ -147,14 +147,55 @@ export default function InfluencerPage() {
 
         <Alert className="bg-blue-50 border-blue-200">
           <DollarSign className="h-4 w-4 text-blue-600" />
-          <AlertDescription className="text-sm space-y-2">
-            <p className="font-semibold text-blue-900">How Payouts Work:</p>
-            <ul className="list-disc list-inside space-y-1 text-blue-800">
-              <li><strong>Basic:</strong> $1 (monthly) or $5 (annual) one-time signup bonus</li>
-              <li><strong>Premium:</strong> $5 (monthly) or $10 (annual) signup + $1/mo or $10/yr recurring</li>
-              <li><strong>Elite:</strong> $10 (monthly) or $15 (annual) signup + $2/mo or $15/yr recurring</li>
-            </ul>
-            <p className="text-xs text-blue-700 mt-2">Payouts are processed monthly. Pending earnings will show as "Pending" until paid by admin.</p>
+          <AlertDescription className="space-y-3">
+            <p className="font-semibold text-blue-900 text-sm">How Influencer Payouts Work:</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-blue-200">
+                    <th className="text-left py-2 px-3 font-semibold text-blue-900">Tier</th>
+                    <th className="text-left py-2 px-3 font-semibold text-blue-900">Monthly Subscription</th>
+                    <th className="text-left py-2 px-3 font-semibold text-blue-900">Annual Subscription</th>
+                  </tr>
+                </thead>
+                <tbody className="text-blue-800">
+                  <tr className="border-b border-blue-100">
+                    <td className="py-2 px-3 font-medium">Basic</td>
+                    <td className="py-2 px-3">
+                      <div>$1.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">No recurring</div>
+                    </td>
+                    <td className="py-2 px-3">
+                      <div>$5.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">No recurring</div>
+                    </td>
+                  </tr>
+                  <tr className="border-b border-blue-100">
+                    <td className="py-2 px-3 font-medium">Premium</td>
+                    <td className="py-2 px-3">
+                      <div>$5.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">+ $1.00 every month</div>
+                    </td>
+                    <td className="py-2 px-3">
+                      <div>$10.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">+ $10.00 every year</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 px-3 font-medium">Elite</td>
+                    <td className="py-2 px-3">
+                      <div>$10.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">+ $2.00 every month</div>
+                    </td>
+                    <td className="py-2 px-3">
+                      <div>$15.00 signup bonus</div>
+                      <div className="text-xs text-blue-600">+ $15.00 every year</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-blue-700 pt-2">Payouts are processed monthly. Pending earnings will show as "Pending" until marked as paid by admin.</p>
           </AlertDescription>
         </Alert>
 

@@ -68,7 +68,7 @@ export default function InfluencerPayoutsAdminPage() {
       if (payoutsError) throw payoutsError;
 
       // Get influencer user emails
-      const userIds = [...new Set(payoutsData?.map(p => p.influencer_user_id))];
+      const userIds = Array.from(new Set(payoutsData?.map(p => p.influencer_user_id)));
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('id, email')
