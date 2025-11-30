@@ -67,6 +67,8 @@ export interface Transaction {
   household_id: string;
   account_id: string;
   category_id: string | null;
+  payee_id?: string | null;
+  transfer_id?: string | null;
   date: string;
   amount: number;
   description: string;
