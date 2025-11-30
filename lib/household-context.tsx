@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Household, HouseholdMember } from './types';
 import { supabase } from './supabase';
 import { useAuth } from './auth-context';
@@ -23,7 +23,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMember[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchHouseholds = async () => {
+  const fetchHouseholds = useCallback(async () => {
     if (!user) {
       setHouseholds([]);
       setCurrentHousehold(null);
@@ -74,7 +74,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     let mounted = true;
@@ -90,7 +90,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [user?.id]);
+  }, [user?.id, fetchHouseholds]);
 
   const switchHousehold = async (householdId: string) => {
     const household = households.find(h => h.id === householdId);

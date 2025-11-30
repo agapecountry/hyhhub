@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, CreditCard, Apple, AlertCircle, Clock, Users, Edit } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -71,13 +71,7 @@ export function UpcomingWeekWidget() {
   const [selectedMealPlan, setSelectedMealPlan] = useState<MealPlan | null>(null);
   const [recipeIngredients, setRecipeIngredients] = useState<RecipeIngredient[]>([]);
 
-  useEffect(() => {
-    if (currentHousehold) {
-      loadWeekData();
-    }
-  }, [currentHousehold]);
-
-  const loadWeekData = async () => {
+  const loadWeekData = useCallback(async () => {
     if (!currentHousehold) return;
 
     setLoading(true);
@@ -189,7 +183,13 @@ export function UpcomingWeekWidget() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentHousehold]);
+
+  useEffect(() => {
+    if (currentHousehold) {
+      loadWeekData();
+    }
+  }, [currentHousehold, loadWeekData]);
 
   const getItemIcon = (type: string) => {
     switch (type) {
