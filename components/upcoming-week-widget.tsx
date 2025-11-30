@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { format, addDays, startOfDay, endOfDay, isToday, isTomorrow, parseISO } from 'date-fns';
+import { formatCurrency } from '@/lib/format';
 import Link from 'next/link';
 
 interface DayItem {
@@ -137,7 +138,7 @@ export function UpcomingWeekWidget() {
               id: debt.id,
               type: 'debt',
               title: debt.name,
-              subtitle: `Payment: $${debt.minimum_payment.toFixed(2)}`,
+              subtitle: `Payment: ${formatCurrency(debt.minimum_payment)}`,
               priority: 'high',
             });
           }

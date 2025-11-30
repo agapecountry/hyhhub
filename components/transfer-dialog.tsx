@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
+import { useHousehold } from '@/lib/household-context';
+import { ArrowRight, Loader2 } from 'lucide-react';
+import { formatCurrency } from '@/lib/format';
 import { format } from 'date-fns';
-import { ArrowRight } from 'lucide-react';
 
 interface Account {
   id: string;
@@ -166,7 +168,7 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
 
       toast({
         title: 'Success',
-        description: `Transferred $${amount.toFixed(2)} to ${toAccount.name}`,
+        description: `Transferred ${formatCurrency(amount)} to ${toAccount.name}`,
       });
 
       // Reset form
@@ -211,7 +213,7 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
               <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                 <span className="font-medium">{currentAccount?.name}</span>
                 <span className="text-sm text-muted-foreground">
-                  (Balance: ${currentAccount?.balance.toFixed(2)})
+                  (Balance: {formatCurrency(currentAccount?.balance || 0)})
                 </span>
               </div>
             </div>
@@ -248,7 +250,7 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
                       <div className="flex items-center justify-between gap-4">
                         <span>{account.name}</span>
                         <span className="text-xs text-muted-foreground">
-                          ${account.balance.toFixed(2)}
+                          {formatCurrency(account.balance)}
                         </span>
                       </div>
                     </SelectItem>
@@ -288,7 +290,7 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
                   <div className="flex flex-col">
                     <span className="font-medium">{currentAccount?.name}</span>
                     <span className="text-red-600 dark:text-red-400">
-                      -${parseFloat(formData.amount).toFixed(2)}
+                      -{formatCurrency(parseFloat(formData.amount))}
                     </span>
                   </div>
                   <ArrowRight className="h-5 w-5 text-muted-foreground" />
@@ -297,7 +299,7 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
                       {accounts.find(a => a.id === formData.toAccountId)?.name}
                     </span>
                     <span className="text-green-600 dark:text-green-400">
-                      +${parseFloat(formData.amount).toFixed(2)}
+                      +{formatCurrency(parseFloat(formData.amount))}
                     </span>
                   </div>
                 </div>

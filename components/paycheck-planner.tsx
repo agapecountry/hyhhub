@@ -17,6 +17,7 @@ import { format, addDays, addWeeks, addMonths, parseISO, isBefore, isAfter, diff
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { generatePaycheckSchedule, type PaycheckPeriod as SchedulePaycheckPeriod, type UnassignedPayment as ScheduleUnassignedPayment } from '@/lib/paycheck-scheduler';
+import { formatCurrency } from '@/lib/format';
 
 interface PaycheckSettings {
   id: string;
@@ -745,7 +746,7 @@ export function PaycheckPlanner() {
                       <p className="font-semibold">{paycheck.paycheck_name}</p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-sm text-muted-foreground">
-                          ${paycheck.net_pay_amount.toFixed(2)}
+                          {formatCurrency(paycheck.net_pay_amount)}
                         </span>
                         <span className="text-sm text-muted-foreground">•</span>
                         <span className="text-sm text-muted-foreground capitalize">
@@ -797,7 +798,7 @@ export function PaycheckPlanner() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-green-600">
-                  ${thisMonthTotalIncome.toFixed(2)}
+                  {formatCurrency(thisMonthTotalIncome)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Across {thisMonthSchedule.length} paycheck{thisMonthSchedule.length !== 1 ? 's' : ''}
@@ -810,7 +811,7 @@ export function PaycheckPlanner() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-destructive">
-                  ${thisMonthTotalPayments.toFixed(2)}
+                  {formatCurrency(thisMonthTotalPayments)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {thisMonthPaymentCount} payment{thisMonthPaymentCount !== 1 ? 's' : ''}
@@ -823,7 +824,7 @@ export function PaycheckPlanner() {
               </CardHeader>
               <CardContent>
                 <p className={`text-2xl font-bold ${thisMonthRemaining >= 0 ? 'text-green-600' : 'text-destructive'}`}>
-                  ${thisMonthRemaining.toFixed(2)}
+                  {formatCurrency(thisMonthRemaining)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   After all payments
@@ -897,7 +898,7 @@ export function PaycheckPlanner() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <p className="font-bold text-destructive">${payment.amount.toFixed(2)}</p>
+                      <p className="font-bold text-destructive">{formatCurrency(payment.amount)}</p>
                       <p className="text-xs text-muted-foreground">Cannot be assigned</p>
                     </div>
                     <Button

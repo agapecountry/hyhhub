@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { formatCurrency } from '@/lib/format';
 import { format } from 'date-fns';
 
 interface Debt {
@@ -48,8 +49,8 @@ export function RecordPaymentDialog({ open, onOpenChange, debt, householdId, onS
       setForm(prev => ({
         ...prev,
         amount,
-        interest_paid: interestPaid.toFixed(2),
-        principal_paid: principalPaid.toFixed(2),
+        interest_paid: interestPaid.toString(),
+        principal_paid: principalPaid.toString(),
       }));
     }
   };
@@ -142,7 +143,7 @@ export function RecordPaymentDialog({ open, onOpenChange, debt, householdId, onS
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="p-3 bg-muted rounded-lg">
             <div className="text-sm text-muted-foreground">Current Balance</div>
-            <div className="text-2xl font-bold">${debt.current_balance.toFixed(2)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(debt.current_balance)}</div>
           </div>
 
           <div>
@@ -210,7 +211,7 @@ export function RecordPaymentDialog({ open, onOpenChange, debt, householdId, onS
             <div className="p-3 bg-primary/10 rounded-lg">
               <div className="text-sm text-muted-foreground">New Balance</div>
               <div className="text-xl font-bold">
-                ${Math.max(0, debt.current_balance - parseFloat(form.principal_paid)).toFixed(2)}
+                {formatCurrency(Math.max(0, debt.current_balance - parseFloat(form.principal_paid)))}
               </div>
             </div>
           )}

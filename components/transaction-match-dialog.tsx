@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Link2, LinkIcon, AlertCircle, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
+import { useHousehold } from '@/lib/household-context';
+import { formatCurrency } from '@/lib/format';
 import { format, parseISO } from 'date-fns';
 
 interface Transaction {
@@ -204,7 +206,7 @@ export function TransactionMatchDialog({
               </div>
               <div>
                 <span className="text-muted-foreground">Amount:</span>{' '}
-                ${Math.abs(transaction.amount).toFixed(2)}
+                {formatCurrency(Math.abs(transaction.amount))}
               </div>
               <div className="col-span-2">
                 <span className="text-muted-foreground">Description:</span>{' '}
@@ -277,10 +279,10 @@ export function TransactionMatchDialog({
                               {match.transaction.description}
                             </TableCell>
                             <TableCell className="text-right">
-                              ${Math.abs(match.transaction.amount).toFixed(2)}
+                              {formatCurrency(Math.abs(match.transaction.amount))}
                               {match.amount_diff > 0 && (
                                 <span className="text-xs text-muted-foreground block">
-                                  (${match.amount_diff.toFixed(2)} diff)
+                                  ({formatCurrency(match.amount_diff)} diff)
                                 </span>
                               )}
                             </TableCell>

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Check, Crown, AlertCircle, X, CheckCircle2, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
+import { formatCurrency } from '@/lib/format';
 
 export default function SubscriptionPage() {
   const { tier: currentTier, subscription, loading: subscriptionLoading } = useSubscription();
@@ -310,7 +311,7 @@ export default function SubscriptionPage() {
                       {billingPeriod === 'monthly' ? (
                         <>
                           <div className="text-2xl font-bold">
-                            ${(tier.monthly_price_cents / 100).toFixed(2)}
+                            {formatCurrency(tier.monthly_price_cents / 100)}
                             <span className="text-sm font-normal text-muted-foreground">
                               /month
                             </span>
@@ -322,13 +323,13 @@ export default function SubscriptionPage() {
                       ) : (
                         <>
                           <div className="text-2xl font-bold">
-                            ${(tier.annual_price_cents / 100).toFixed(2)}
+                            {formatCurrency(tier.annual_price_cents / 100)}
                             <span className="text-sm font-normal text-muted-foreground">
                               /year
                             </span>
                           </div>
                           <div className="text-sm text-green-600 mt-1">
-                            Save ${((tier.monthly_price_cents * 12 - tier.annual_price_cents) / 100).toFixed(2)}/year
+                            Save {formatCurrency((tier.monthly_price_cents * 12 - tier.annual_price_cents) / 100)}/year
                           </div>
                         </>
                       )}
@@ -397,7 +398,7 @@ export default function SubscriptionPage() {
                           <div className="text-sm font-normal text-muted-foreground mt-1">
                             {tier.name === 'free'
                               ? 'Free'
-                              : `$${(tier.monthly_price_cents / 100).toFixed(2)}/mo`}
+                              : `${formatCurrency(tier.monthly_price_cents / 100)}/mo`}
                           </div>
                         </th>
                       ))}
@@ -581,7 +582,7 @@ export default function SubscriptionPage() {
                         <td key={tier.id} className="text-center p-4 font-semibold">
                           {tier.name === 'free'
                             ? 'Free'
-                            : `$${(tier.monthly_price_cents / 100).toFixed(2)}`}
+                            : `${formatCurrency(tier.monthly_price_cents / 100)}`}
                         </td>
                       ))}
                     </tr>
@@ -591,7 +592,7 @@ export default function SubscriptionPage() {
                         <td key={tier.id} className="text-center p-4 font-semibold">
                           {tier.name === 'free'
                             ? 'Free'
-                            : `$${(tier.annual_price_cents / 100).toFixed(2)}`}
+                            : `${formatCurrency(tier.annual_price_cents / 100)}`}
                         </td>
                       ))}
                     </tr>
