@@ -102,7 +102,7 @@ export default function ProfilePage() {
         .select('id, event_type, event_category, action, status, ip_address, user_agent, created_at, details')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(5);
 
       if (error) throw error;
       setSecurityLogs(data || []);
@@ -367,31 +367,42 @@ export default function ProfilePage() {
                 No security activity recorded yet
               </p>
             ) : (
-              <div className="space-y-3">
-                {securityLogs.map((log) => (
-                  <div key={log.id} className="p-3 border rounded-lg space-y-1 font-mono text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-foreground">{log.action}</span>
-                      <Badge variant={log.status === 'success' ? 'secondary' : 'destructive'}>
-                        {log.status}
-                      </Badge>
+              <>
+                <div className="space-y-3">
+                  {securityLogs.map((log) => (
+                    <div key={log.id} className="p-3 border rounded-lg space-y-1 font-mono text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground">{log.action}</span>
+                        <Badge variant={log.status === 'success' ? 'secondary' : 'destructive'}>
+                          {log.status}
+                        </Badge>
+                      </div>
+                      <div className="text-muted-foreground space-y-0.5">
+                        <div>timestamp: {format(parseISO(log.created_at), 'yyyy-MM-dd HH:mm:ss')}Z</div>
+                        <div>action: {log.action}</div>
+                        {log.ip_address && <div>ip_address: {log.ip_address}</div>}
+                        {log.user_agent && (
+                          <div className="truncate">
+                            user_agent: {log.user_agent.substring(0, 60)}...
+                          </div>
+                        )}
+                        {log.details && Object.keys(log.details).length > 0 && (
+                          <div>metadata: {JSON.stringify(log.details)}</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-muted-foreground space-y-0.5">
-                      <div>timestamp: {format(parseISO(log.created_at), 'yyyy-MM-dd HH:mm:ss')}Z</div>
-                      <div>action: {log.action}</div>
-                      {log.ip_address && <div>ip_address: {log.ip_address}</div>}
-                      {log.user_agent && (
-                        <div className="truncate">
-                          user_agent: {log.user_agent.substring(0, 60)}...
-                        </div>
-                      )}
-                      {log.details && Object.keys(log.details).length > 0 && (
-                        <div>metadata: {JSON.stringify(log.details)}</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+                <div className="mt-4 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push('/dashboard/profile/activity-history')}
+                  >
+                    View All Activity
+                  </Button>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
