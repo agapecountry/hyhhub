@@ -49,6 +49,7 @@ interface Transaction {
   debt_id: string | null;
   bill_id?: string | null;
   payee_id: string | null;
+  transfer_id?: string | null;
   recurring_transaction_id: string | null;
   created_at: string;
   auto_matched?: boolean;
