@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { SubscriptionTierData, HouseholdSubscription, PlaidConnection } from './types';
 import { supabase } from './supabase';
 import { HouseholdContext } from './household-context';
@@ -24,7 +24,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [plaidConnections, setPlaidConnections] = useState<PlaidConnection[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchSubscription = async () => {
+  const fetchSubscription = useCallback(async () => {
     if (!householdContext?.currentHousehold) {
       setTier(null);
       setSubscription(null);
@@ -103,7 +103,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } finally {
       setLoading(false);
     }
-  };
+  }, [householdContext?.currentHousehold]);
 
   useEffect(() => {
     let mounted = true;
@@ -119,7 +119,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => {
       mounted = false;
     };
-  }, [householdContext?.currentHousehold?.id]);
+  }, [householdContext?.currentHousehold?.id, fetchSubscription]);
 
   const hasFeature = (feature: keyof SubscriptionTierData['features']): boolean => {
     if (!tier) return false;
