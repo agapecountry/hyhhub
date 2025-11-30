@@ -1,15 +1,8 @@
 /*
-  # Add Unlink Plaid Function
+  # Fix Unlink Plaid Function - Add Type Mapping
   
-  1. Purpose
-    - Allow users to unlink Plaid accounts while keeping all data
-    - Converts plaid_accounts to manual accounts
-    - Preserves all transactions
-  
-  2. Function
-    - unlink_plaid_item(p_plaid_item_id uuid, p_household_id uuid)
-    - Converts all plaid_accounts under the item to manual accounts
-    - Deletes the plaid_item (which cascades to remove plaid connection)
+  Updates the unlink_plaid_item function to properly map Plaid account types 
+  to manual account types that match the accounts table check constraint.
 */
 
 CREATE OR REPLACE FUNCTION unlink_plaid_item(
@@ -96,4 +89,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION unlink_plaid_item IS 
-  'Unlinks a Plaid item by converting all its accounts to manual accounts and deleting the Plaid connection';
+  'Unlinks a Plaid item by converting all its accounts to manual accounts with proper type mapping';
