@@ -354,9 +354,9 @@ export default function AccountsPage() {
 
     setLoading(true);
     try {
-      // Call the database function to unlink
-      const { data, error } = await supabase.rpc('unlink_plaid_item', {
-        p_plaid_item_id: accountToUnlink.plaid_item_id,
+      // Call the database function to unlink this single account
+      const { data, error } = await supabase.rpc('unlink_single_plaid_account', {
+        p_account_id: accountToUnlink.id,
         p_household_id: currentHousehold.id
       });
 
@@ -365,14 +365,14 @@ export default function AccountsPage() {
       if (data && data.success) {
         toast({
           title: 'Success',
-          description: data.message || 'Accounts unlinked from Plaid successfully',
+          description: data.message || 'Account unlinked from Plaid successfully',
         });
 
         loadAllAccounts();
         setUnlinkDialogOpen(false);
         setAccountToUnlink(null);
       } else {
-        throw new Error(data?.error || 'Failed to unlink accounts');
+        throw new Error(data?.error || 'Failed to unlink account');
       }
     } catch (error: any) {
       toast({
@@ -1277,8 +1277,8 @@ export default function AccountsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unlink from Plaid</AlertDialogTitle>
             <AlertDialogDescription>
-              This will disconnect all accounts from {accountToUnlink?.source === 'plaid' ? plaidItems.get(accountToUnlink.plaid_item_id)?.institution_name || 'this bank' : 'this bank'} from Plaid.
-              All account data and transactions will be preserved as manual accounts. You can reconnect later if needed.
+              This will disconnect "{accountToUnlink?.name}" from Plaid and convert it to a manual account.
+              All transaction history will be preserved. You can reconnect to Plaid later if needed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
