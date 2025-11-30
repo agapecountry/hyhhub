@@ -295,63 +295,63 @@ CREATE POLICY "Household members can delete income sources"
   );
 
 -- ============================================================================
--- MANUAL_PAYCHECK_PAYMENTS
+-- MANUAL_PAYCHECK_PAYMENTS (Table doesn't exist - commented out)
 -- ============================================================================
 
-DROP POLICY IF EXISTS "Users can view their household manual payments" ON manual_paycheck_payments;
-CREATE POLICY "Users can view their household manual payments"
-  ON manual_paycheck_payments FOR SELECT
-  TO authenticated
-  USING (
-    household_id IN (
-      SELECT household_id 
-      FROM household_members 
-      WHERE user_id = (SELECT auth.uid())
-    )
-  );
+-- DROP POLICY IF EXISTS "Users can view their household manual payments" ON manual_paycheck_payments;
+-- CREATE POLICY "Users can view their household manual payments"
+--   ON manual_paycheck_payments FOR SELECT
+--   TO authenticated
+--   USING (
+--     household_id IN (
+--       SELECT household_id 
+--       FROM household_members 
+--       WHERE user_id = (SELECT auth.uid())
+--     )
+--   );
 
-DROP POLICY IF EXISTS "Users can create manual payments" ON manual_paycheck_payments;
-CREATE POLICY "Users can create manual payments"
-  ON manual_paycheck_payments FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    household_id IN (
-      SELECT household_id 
-      FROM household_members 
-      WHERE user_id = (SELECT auth.uid())
-    )
-  );
+-- DROP POLICY IF EXISTS "Users can create manual payments" ON manual_paycheck_payments;
+-- CREATE POLICY "Users can create manual payments"
+--   ON manual_paycheck_payments FOR INSERT
+--   TO authenticated
+--   WITH CHECK (
+--     household_id IN (
+--       SELECT household_id 
+--       FROM household_members 
+--       WHERE user_id = (SELECT auth.uid())
+--     )
+--   );
 
-DROP POLICY IF EXISTS "Users can update manual payments" ON manual_paycheck_payments;
-CREATE POLICY "Users can update manual payments"
-  ON manual_paycheck_payments FOR UPDATE
-  TO authenticated
-  USING (
-    household_id IN (
-      SELECT household_id 
-      FROM household_members 
-      WHERE user_id = (SELECT auth.uid())
-    )
-  )
-  WITH CHECK (
-    household_id IN (
-      SELECT household_id 
-      FROM household_members 
-      WHERE user_id = (SELECT auth.uid())
-    )
-  );
+-- DROP POLICY IF EXISTS "Users can update manual payments" ON manual_paycheck_payments;
+-- CREATE POLICY "Users can update manual payments"
+--   ON manual_paycheck_payments FOR UPDATE
+--   TO authenticated
+--   USING (
+--     household_id IN (
+--       SELECT household_id 
+--       FROM household_members 
+--       WHERE user_id = (SELECT auth.uid())
+--     )
+--   )
+--   WITH CHECK (
+--     household_id IN (
+--       SELECT household_id 
+--       FROM household_members 
+--       WHERE user_id = (SELECT auth.uid())
+--     )
+--   );
 
-DROP POLICY IF EXISTS "Users can delete manual payments" ON manual_paycheck_payments;
-CREATE POLICY "Users can delete manual payments"
-  ON manual_paycheck_payments FOR DELETE
-  TO authenticated
-  USING (
-    household_id IN (
-      SELECT household_id 
-      FROM household_members 
-      WHERE user_id = (SELECT auth.uid())
-    )
-  );
+-- DROP POLICY IF EXISTS "Users can delete manual payments" ON manual_paycheck_payments;
+-- CREATE POLICY "Users can delete manual payments"
+--   ON manual_paycheck_payments FOR DELETE
+--   TO authenticated
+--   USING (
+--     household_id IN (
+--       SELECT household_id 
+--       FROM household_members 
+--       WHERE user_id = (SELECT auth.uid())
+--     )
+--   );
 
 -- ============================================================================
 -- MEMBER_PERMISSIONS (from initial schema)

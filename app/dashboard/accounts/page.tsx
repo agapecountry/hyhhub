@@ -23,6 +23,7 @@ import { PageHelpDialog } from '@/components/page-help-dialog';
 import { pageHelpContent } from '@/lib/page-help-content';
 import { PlaidLinkButton } from '@/components/plaid-link-button';
 import { SearchableCategorySelect } from '@/components/searchable-category-select';
+import { formatCurrency } from '@/lib/format';
 import { IconPicker } from '@/components/icon-picker';
 
 interface ManualAccount {
@@ -108,6 +109,8 @@ export default function AccountsPage() {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<UnifiedAccount | null>(null);
+  const [unlinkDialogOpen, setUnlinkDialogOpen] = useState(false);
+  const [accountToUnlink, setAccountToUnlink] = useState<UnifiedAccount | null>(null);
 
   const [bills, setBills] = useState<Bill[]>([]);
   const [categories, setCategories] = useState<TransactionCategory[]>([]);
@@ -329,6 +332,42 @@ export default function AccountsPage() {
       toast({
         title: 'Error',
         description: error.message || 'Failed to delete account',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnlinkAccount = async () => {
+    if (!accountToUnlink || !currentHousehold) return;
+
+    setLoading(true);
+    try {
+      // Call the database function to unlink
+      const { data, error } = await supabase.rpc('unlink_plaid_item', {
+        p_plaid_item_id: accountToUnlink.plaid_item_id,
+        p_household_id: currentHousehold.id
+      });
+
+      if (error) throw error;
+
+      if (data && data.success) {
+        toast({
+          title: 'Success',
+          description: data.message || 'Accounts unlinked from Plaid successfully',
+        });
+
+        loadAllAccounts();
+        setUnlinkDialogOpen(false);
+        setAccountToUnlink(null);
+      } else {
+        throw new Error(data?.error || 'Failed to unlink accounts');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to unlink accounts',
         variant: 'destructive',
       });
     } finally {
@@ -837,25 +876,40 @@ export default function AccountsPage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <div className="text-2xl font-bold">
-                            ${account.source === 'plaid' ? account.current_balance?.toFixed(2) || '0.00' : account.balance?.toFixed(2) || '0.00'}
+                            {formatCurrency(account.source === 'plaid' ? (account.current_balance || 0) : (account.balance || 0))}
                           </div>
                           <div className="text-xs text-muted-foreground capitalize">
                             {account.type}
                           </div>
                         </div>
                         {isLinked && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRefreshAccounts(account.plaid_item_id);
-                            }}
-                            disabled={loading}
-                            title="Refresh Account Balances"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRefreshAccounts(account.plaid_item_id);
+                              }}
+                              disabled={loading}
+                              title="Refresh Account Balances"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAccountToUnlink(account);
+                                setUnlinkDialogOpen(true);
+                              }}
+                              disabled={loading}
+                              title="Unlink from Plaid"
+                            >
+                              <Link2 className="h-4 w-4" />
+                            </Button>
+                          </>
                         )}
                         <Button
                           variant="ghost"
@@ -958,7 +1012,7 @@ export default function AccountsPage() {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <div className="text-xl font-bold">${bill.amount.toFixed(2)}</div>
+                        <div className="text-xl font-bold">{formatCurrency(bill.amount)}</div>
                         <div className="text-xs text-muted-foreground">{getFrequencyLabel(bill.frequency)}</div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -1203,6 +1257,24 @@ export default function AccountsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteAccount} disabled={loading}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={unlinkDialogOpen} onOpenChange={setUnlinkDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlink from Plaid</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will disconnect all accounts from {plaidItems.get(accountToUnlink?.plaid_item_id || '')?.institution_name || 'this bank'} from Plaid.
+              All account data and transactions will be preserved as manual accounts. You can reconnect later if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleUnlinkAccount} disabled={loading}>
+              {loading ? 'Unlinking...' : 'Unlink'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

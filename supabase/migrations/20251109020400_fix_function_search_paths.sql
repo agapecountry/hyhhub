@@ -92,6 +92,7 @@ END;
 $$;
 
 -- create_default_transaction_categories
+DROP FUNCTION IF EXISTS public.create_default_transaction_categories(UUID);
 CREATE OR REPLACE FUNCTION public.create_default_transaction_categories(household_id_param UUID)
 RETURNS VOID
 LANGUAGE plpgsql

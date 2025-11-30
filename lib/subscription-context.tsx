@@ -60,13 +60,36 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         setSubscription(null);
       }
 
-      const { data: connections, error: connError } = await supabase
-        .from('plaid_connections')
-        .select('*')
+      // Query plaid_items instead of plaid_connections since that's what's actually used
+      const { data: items, error: itemsError } = await supabase
+        .from('plaid_items')
+        .select('id, household_id, item_id, institution_name, institution_id, status, created_at, updated_at, last_synced_at')
         .eq('household_id', currentHousehold.id);
 
-      if (connError) throw connError;
-      setPlaidConnections(connections || []);
+      if (itemsError) throw itemsError;
+      
+      // Map plaid_items to PlaidConnection format
+      const connections: PlaidConnection[] = (items || []).map(item => ({
+        id: item.id,
+        household_id: item.household_id,
+        plaid_item_id: item.item_id,
+        institution_name: item.institution_name,
+        institution_id: item.institution_id,
+        last_refresh: item.last_synced_at,
+        status: item.status as 'active' | 'error' | 'disconnected',
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      }));
+      
+      console.log('Plaid items found:', connections.length);
+      console.log('Active plaid items:', connections.filter(c => c.status === 'active').length);
+      console.log('Plaid items detail:', connections.map(c => ({ 
+        institution: c.institution_name, 
+        status: c.status,
+        created: c.created_at 
+      })));
+      
+      setPlaidConnections(connections);
     } catch (error) {
       console.error('Error fetching subscription:', error);
 
