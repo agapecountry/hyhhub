@@ -73,8 +73,9 @@ export default function DashboardPage() {
     if (!currentHousehold) return;
 
     const fetchStats = async () => {
-      const [accounts, debts, events, recipes, chores, pantry] = await Promise.all([
+      const [accounts, plaidAccounts, debts, events, recipes, chores, pantry] = await Promise.all([
         supabase.from('accounts').select('balance', { count: 'exact' }).eq('household_id', currentHousehold.id),
+        supabase.from('plaid_accounts').select('current_balance', { count: 'exact' }).eq('household_id', currentHousehold.id),
         supabase.from('debts').select('*', { count: 'exact' }).eq('household_id', currentHousehold.id).eq('is_active', true),
         supabase.from('calendar_events').select('*', { count: 'exact' }).eq('household_id', currentHousehold.id).gte('start_time', new Date().toISOString()),
         supabase.from('recipes').select('*', { count: 'exact' }).eq('household_id', currentHousehold.id),
@@ -82,10 +83,12 @@ export default function DashboardPage() {
         supabase.from('pantry_items').select('*', { count: 'exact' }).eq('household_id', currentHousehold.id),
       ]);
 
-      const totalBalance = accounts.data?.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0) || 0;
+      const manualBalance = accounts.data?.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0) || 0;
+      const plaidBalance = plaidAccounts.data?.reduce((sum, acc) => sum + (Number(acc.current_balance) || 0), 0) || 0;
+      const totalBalance = manualBalance + plaidBalance;
 
       setStats({
-        totalAccounts: accounts.count || 0,
+        totalAccounts: (accounts.count || 0) + (plaidAccounts.count || 0),
         totalBalance,
         activeLoans: debts.count || 0,
         upcomingEvents: events.count || 0,

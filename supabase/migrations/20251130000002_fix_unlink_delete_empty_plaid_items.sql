@@ -1,8 +1,8 @@
 /*
-  # Add Function to Unlink Single Plaid Account
+  # Fix Unlink Single Account - Delete Empty Plaid Items
   
-  Creates a function to unlink just ONE Plaid account instead of all accounts
-  from a Plaid item (institution).
+  Updates unlink_single_plaid_account to delete the plaid_item if this was
+  the last account for that item. This properly updates the linked connections count.
 */
 
 CREATE OR REPLACE FUNCTION unlink_single_plaid_account(
@@ -97,4 +97,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION unlink_single_plaid_account IS 
-  'Unlinks a single Plaid account by converting it to a manual account and preserving all transactions';
+  'Unlinks a single Plaid account by converting it to a manual account and preserving all transactions. Deletes the plaid_item if this was the last account.';
