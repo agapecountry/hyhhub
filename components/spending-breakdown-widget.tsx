@@ -206,7 +206,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
       console.log('Fetched transactions:', txnData?.map(t => ({ date: t.date, description: t.description })));
 
       // Get account names for all transactions
-      const accountIds = [...new Set(txnData?.map((t: any) => t.account_id).filter(Boolean))];
+      const accountIds = Array.from(new Set(txnData?.map((t: any) => t.account_id).filter(Boolean)));
       const accountMap = new Map();
 
       console.log('Account IDs to lookup:', accountIds);
