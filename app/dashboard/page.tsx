@@ -13,6 +13,7 @@ import { UpcomingWeekWidget } from '@/components/upcoming-week-widget';
 import { PageHelpDialog } from '@/components/page-help-dialog';
 import { pageHelpContent } from '@/lib/page-help-content';
 import { DollarSign, CreditCard, ChefHat, CheckSquare, Calendar as CalendarIcon, Package, Settings } from 'lucide-react';
+import { formatCurrency } from '@/lib/format';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -167,7 +168,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${stats.totalBalance.toFixed(2)}
+                    {formatCurrency(stats.totalBalance)}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Across {stats.totalAccounts} accounts

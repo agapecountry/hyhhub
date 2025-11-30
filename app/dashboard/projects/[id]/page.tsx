@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, ArrowLeft, Plus, ExternalLink, Trash2, Calendar, DollarSign, TrendingUp, Pencil, Link as LinkIcon } from 'lucide-react';
+import { formatCurrency } from '@/lib/format';
 
 export default function ProjectDetailPage() {
   const router = useRouter();
@@ -311,10 +312,10 @@ export default function ProjectDetailPage() {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-2xl font-bold">
-                    ${(project.current_amount_cents / 100).toFixed(2)}
+                    {formatCurrency(project.current_amount_cents / 100)}
                   </span>
                   <span className="text-lg text-muted-foreground">
-                    of ${(project.goal_amount_cents / 100).toFixed(2)}
+                    of {formatCurrency(project.goal_amount_cents / 100)}
                   </span>
                 </div>
                 <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
@@ -334,7 +335,7 @@ export default function ProjectDetailPage() {
                     <TrendingUp className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-xs text-muted-foreground">Remaining</p>
-                      <p className="font-semibold">${(remaining / 100).toFixed(2)}</p>
+                      <p className="font-semibold">{formatCurrency(remaining / 100)}</p>
                     </div>
                   </div>
                 )}
@@ -355,7 +356,7 @@ export default function ProjectDetailPage() {
                   <div>
                     <p className="text-xs text-muted-foreground">Linked Account</p>
                     <p className="font-semibold">{account.name}</p>
-                    <p className="text-sm text-muted-foreground">${((account as any).balance ?? (account as any).current_balance ?? 0).toFixed(2)}</p>
+                    <p className="text-sm text-muted-foreground">{formatCurrency((account as any).balance ?? (account as any).current_balance ?? 0)}</p>
                   </div>
                 </div>
               )}
@@ -605,7 +606,7 @@ export default function ProjectDetailPage() {
                                     const balance = (acc as any).balance ?? (acc as any).current_balance ?? 0;
                                     return (
                                       <SelectItem key={acc.id} value={acc.id}>
-                                        {acc.name} (${balance.toFixed(2)})
+                                        {acc.name} ({formatCurrency(balance)})
                                       </SelectItem>
                                     );
                                   })}
@@ -635,7 +636,7 @@ export default function ProjectDetailPage() {
                         <div className="flex items-center gap-2">
                           <span className={transaction.transaction_type === 'deposit' ? 'text-green-600' : 'text-red-600'}>
                             {transaction.transaction_type === 'deposit' ? '+' : '-'}
-                            ${(transaction.amount_cents / 100).toFixed(2)}
+                            {formatCurrency(transaction.amount_cents / 100)}
                           </span>
                         </div>
                         {transaction.description && (

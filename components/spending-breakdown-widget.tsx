@@ -17,6 +17,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Toolti
 import { DollarSign, TrendingDown, ShoppingBag, Loader2, Calendar as CalendarIcon } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { formatCurrency } from '@/lib/format';
 
 interface CategorySpending {
   category_id: string;
@@ -185,7 +186,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
           amount,
           notes,
           plaid_transaction_id,
-          accounts!inner(name)
+          account_id
         `)
         .eq('household_id', currentHousehold.id)
         .lt('amount', 0)
@@ -204,13 +205,60 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
 
       console.log('Fetched transactions:', txnData?.map(t => ({ date: t.date, description: t.description })));
 
+      // Get account names for all transactions
+      const accountIds = [...new Set(txnData?.map((t: any) => t.account_id).filter(Boolean))];
+      const accountMap = new Map();
+
+      console.log('Account IDs to lookup:', accountIds);
+
+      if (accountIds.length > 0) {
+        // Fetch from both accounts and plaid_accounts (including inactive ones for history)
+        const { data: manualAccounts, error: manualError } = await supabase
+          .from('accounts')
+          .select('id, name')
+          .eq('household_id', currentHousehold.id)
+          .in('id', accountIds);
+
+        const { data: plaidAccounts, error: plaidError } = await supabase
+          .from('plaid_accounts')
+          .select('id, name')
+          .eq('household_id', currentHousehold.id)
+          .in('id', accountIds);
+
+        console.log('Manual accounts found:', manualAccounts);
+        console.log('Plaid accounts found:', plaidAccounts);
+        console.log('Manual accounts error:', manualError);
+        console.log('Plaid accounts error:', plaidError);
+        
+        // Also check if the account was deleted by querying without household filter
+        if ((manualAccounts?.length === 0) && (plaidAccounts?.length === 0)) {
+          const { data: deletedManual } = await supabase
+            .from('accounts')
+            .select('id, name, household_id')
+            .in('id', accountIds);
+          
+          const { data: deletedPlaid } = await supabase
+            .from('plaid_accounts')
+            .select('id, name, household_id')
+            .in('id', accountIds);
+            
+          console.log('Checking deleted accounts (manual):', deletedManual);
+          console.log('Checking deleted accounts (plaid):', deletedPlaid);
+        }
+
+        (manualAccounts || []).forEach((acc: any) => accountMap.set(acc.id, acc.name));
+        (plaidAccounts || []).forEach((acc: any) => accountMap.set(acc.id, acc.name));
+        
+        console.log('Account map:', Array.from(accountMap.entries()));
+      }
+
       const formattedTxns = (txnData || []).map((txn: any) => ({
         id: txn.id,
         date: txn.date,
         description: txn.description,
         amount: Math.abs(txn.amount),
         notes: txn.notes,
-        account_name: txn.accounts?.name || 'Unknown',
+        account_name: accountMap.get(txn.account_id) || 'Unknown',
         plaid_transaction_id: txn.plaid_transaction_id,
         is_scheduled: false
       }));
@@ -367,7 +415,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
             <span>{data.payload.category_name}</span>
           </p>
           <p className="text-sm text-primary font-bold">
-            ${data.value.toFixed(2)}
+            {formatCurrency(data.value)}
           </p>
           <p className="text-xs text-muted-foreground">
             {((data.value / totalSpending) * 100).toFixed(1)}% of total
@@ -474,7 +522,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Spending</p>
-              <p className="text-2xl font-bold text-primary">${totalSpending.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-primary">{formatCurrency(totalSpending)}</p>
             </div>
           </div>
         </div>
@@ -527,7 +575,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
               <span>{selectedCategory?.category_name} Transactions</span>
             </DialogTitle>
             <DialogDescription>
-              Total: ${selectedCategory?.total_amount.toFixed(2)}
+              Total: {formatCurrency(selectedCategory?.total_amount || 0)}
             </DialogDescription>
           </DialogHeader>
 
@@ -579,7 +627,7 @@ export function SpendingBreakdownWidget({ monthOffset = 0 }: SpendingBreakdownPr
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        ${transaction.amount.toFixed(2)}
+                        {formatCurrency(transaction.amount)}
                       </TableCell>
                     </TableRow>
                   ))}

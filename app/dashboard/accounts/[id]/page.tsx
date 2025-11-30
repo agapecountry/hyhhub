@@ -454,6 +454,11 @@ export default function AccountDetailPage() {
       // Check if this is a transfer to another account
       const selectedPayee = payees.find(p => p.id === transactionForm.payee_id);
       const isTransfer = selectedPayee?.is_transfer_account && selectedPayee?.account_id;
+      
+      // Convert empty string payee_id to null for proper UUID handling
+      const validPayeeId = transactionForm.payee_id && transactionForm.payee_id.trim() !== '' 
+        ? transactionForm.payee_id 
+        : null;
 
       const selectedPayeeForDesc = payees.find(p => p.id === transactionForm.payee_id);
       const transactionData: any = {
@@ -467,7 +472,7 @@ export default function AccountDetailPage() {
         is_pending: transactionForm.is_pending,
         is_cleared: transactionForm.is_cleared,
         debt_id: transactionForm.debt_id || null,
-        payee_id: transactionForm.payee_id || null,
+        payee_id: isTransfer ? null : validPayeeId, // Don't set payee_id for transfers
       };
 
       if (transactionForm.is_recurring) {
@@ -476,7 +481,7 @@ export default function AccountDetailPage() {
           .insert({
             household_id: currentHousehold.id,
             account_id: accountId,
-            payee_id: transactionForm.payee_id || null,
+            payee_id: isTransfer ? null : validPayeeId,
             category_id: transactionForm.category && transactionForm.category !== '' ? transactionForm.category : null,
             transaction_type: transactionForm.transaction_type,
             amount: Math.abs(rawAmount),
@@ -602,6 +607,15 @@ export default function AccountDetailPage() {
 
       // Check if this is a Plaid transaction
       const isPlaidTransaction = !!editingTransaction.plaid_transaction_id;
+      
+      // Check if the selected payee is a transfer account
+      const selectedPayee = payees.find(p => p.id === transactionForm.payee_id);
+      const isTransferEdit = selectedPayee?.is_transfer_account && selectedPayee?.account_id;
+      
+      // Convert empty string payee_id to null for proper UUID handling
+      const validPayeeId = transactionForm.payee_id && transactionForm.payee_id.trim() !== '' 
+        ? transactionForm.payee_id 
+        : null;
 
       if (isPlaidTransaction) {
         // Update plaid_transactions table and mark as user_modified
@@ -623,7 +637,7 @@ export default function AccountDetailPage() {
             name: updatedName,
             amount: plaidAmount,
             category_id: categoryId,
-            payee_id: transactionForm.payee_id || null,
+            payee_id: isTransferEdit ? null : validPayeeId,
             notes: transactionForm.notes || null,
             pending: transactionForm.is_pending,
             is_cleared: transactionForm.is_cleared,
@@ -653,7 +667,7 @@ export default function AccountDetailPage() {
             notes: transactionForm.notes || null,
             is_pending: transactionForm.is_pending,
             debt_id: transactionForm.debt_id || null,
-            payee_id: transactionForm.payee_id || null,
+            payee_id: isTransferEdit ? null : validPayeeId,
           })
           .eq('id', editingTransaction.id);
 
@@ -782,9 +796,20 @@ export default function AccountDetailPage() {
   const openEditDialog = (transaction: Transaction) => {
     setEditingTransaction(transaction);
     const isNegative = transaction.amount < 0;
+    
+    // Check if this transaction is a transfer by checking if transfer_id exists
+    // If it's a transfer, find the corresponding transfer payee ID
+    let payeeIdForForm = transaction.payee_id || '';
+    if (transaction.transfer_id && !transaction.payee_id) {
+      // This is a transfer - try to find the transfer payee
+      // Note: We can't easily determine which account it transferred to/from just from this transaction
+      // so we'll leave it blank and user can reselect if needed
+      payeeIdForForm = '';
+    }
+    
     setTransactionForm({
       date: transaction.date,
-      payee_id: transaction.payee_id || '',
+      payee_id: payeeIdForForm,
       transaction_type: isNegative ? 'withdraw' : 'deposit',
       amount: Math.abs(transaction.amount).toString(),
       category: transaction.category_id || '',

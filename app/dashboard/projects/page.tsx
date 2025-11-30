@@ -19,6 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Plus, Target, TrendingUp, Calendar, Trash2, Crown, Pencil, ArrowLeft } from 'lucide-react';
+import { formatCurrency } from '@/lib/format';
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -163,7 +164,7 @@ export default function ProjectsPage() {
       name: project.name,
       description: project.description,
       project_type: project.project_type,
-      goal_amount: (project.goal_amount_cents / 100).toFixed(2),
+      goal_amount: (project.goal_amount_cents / 100).toString(),
       target_date: project.target_date || '',
       primary_account_id: project.primary_account_id || '',
       notes: project.notes,
@@ -356,7 +357,7 @@ export default function ProjectsPage() {
                         const balance = (account as any).balance ?? (account as any).current_balance ?? 0;
                         return (
                           <SelectItem key={account.id} value={account.id}>
-                            {account.name} - ${balance.toFixed(2)}
+                            {account.name} - {formatCurrency(balance)}
                           </SelectItem>
                         );
                       })}
@@ -450,10 +451,10 @@ export default function ProjectsPage() {
                     <div>
                       <div className="flex justify-between text-sm mb-2">
                         <span className="font-semibold">
-                          ${(project.current_amount_cents / 100).toFixed(2)}
+                          {formatCurrency(project.current_amount_cents / 100)}
                         </span>
                         <span className="text-muted-foreground">
-                          ${(project.goal_amount_cents / 100).toFixed(2)}
+                          {formatCurrency(project.goal_amount_cents / 100)}
                         </span>
                       </div>
                       <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -471,7 +472,7 @@ export default function ProjectsPage() {
                       <div className="flex items-center gap-2 text-sm">
                         <TrendingUp className="h-4 w-4 text-muted-foreground" />
                         <span className="text-muted-foreground">
-                          ${(remaining / 100).toFixed(2)} remaining
+                          {formatCurrency(remaining / 100)} remaining
                         </span>
                       </div>
                     )}
