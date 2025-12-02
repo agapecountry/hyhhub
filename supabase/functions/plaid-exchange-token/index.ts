@@ -117,9 +117,12 @@ Deno.serve(async (req: Request) => {
       type: account.type,
       subtype: account.subtype || null,
       mask: account.mask || null,
-      current_balance: account.balances.current || 0,
+      initial_balance: account.balances.current || 0, // Set starting point (never changes)
+      current_balance: account.balances.current || 0, // User can modify with manual transactions
+      reconciled_balance: account.balances.current || 0, // What Plaid reports
       available_balance: account.balances.available || null,
       currency_code: account.balances.iso_currency_code || 'USD',
+      last_reconciled_at: new Date().toISOString(),
       is_active: true,
     }));
 

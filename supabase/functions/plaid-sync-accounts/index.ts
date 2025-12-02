@@ -75,11 +75,14 @@ Deno.serve(async (req: Request) => {
     const accounts = accountsResponse.data.accounts;
 
     for (const account of accounts) {
+      // Update reconciled_balance (what Plaid says) but NOT current_balance
+      // current_balance is managed by manual transactions (checkbook model)
       await supabase
         .from('plaid_accounts')
         .update({
-          current_balance: account.balances.current || 0,
+          reconciled_balance: account.balances.current || 0,
           available_balance: account.balances.available || null,
+          last_reconciled_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('account_id', account.account_id)
