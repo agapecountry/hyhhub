@@ -1,10 +1,13 @@
 /*
   # Fix New User Signup Error
   
-  The handle_new_user function was trying to insert into user_settings
-  which doesn't exist. We have user_preferences instead.
+  The handle_new_user function was incorrectly configured, causing 500 errors
+  on new user signup. This migration fixes:
   
-  This migration fixes the function to work with the actual schema.
+  1. Correct user_settings table usage (not user_preferences)
+  2. Proper column references (household_id, default_household_id required)
+  3. Idempotency with ON CONFLICT clauses
+  4. Better error logging
 */
 
 -- Drop and recreate the function with correct table names
@@ -47,10 +50,10 @@ BEGIN
     user_name
   );
 
-  -- Create user preferences (not user_settings)
-  INSERT INTO public.user_preferences (user_id, theme, language)
-  VALUES (NEW.id, 'system', 'en')
-  ON CONFLICT (user_id) DO NOTHING;
+  -- Create user settings for the default household
+  INSERT INTO public.user_settings (user_id, household_id, default_household_id, settings)
+  VALUES (NEW.id, default_household_id, default_household_id, '{}'::jsonb)
+  ON CONFLICT (household_id, user_id) DO NOTHING;
 
   RETURN NEW;
   
@@ -92,10 +95,10 @@ CREATE POLICY "Users can add self as member during signup"
   FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
--- User preferences: Allow creating own preferences
-DROP POLICY IF EXISTS "Users can create own preferences during signup" ON public.user_preferences;
-CREATE POLICY "Users can create own preferences during signup"
-  ON public.user_preferences
+-- User settings: Allow creating own settings (policy should already exist, but ensure it)
+DROP POLICY IF EXISTS "Users can create own settings during signup" ON public.user_settings;
+CREATE POLICY "Users can create own settings during signup"
+  ON public.user_settings
   FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
