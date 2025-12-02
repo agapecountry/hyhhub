@@ -111,6 +111,7 @@ export default function AccountsPage() {
   const [accountToDelete, setAccountToDelete] = useState<UnifiedAccount | null>(null);
   const [unlinkDialogOpen, setUnlinkDialogOpen] = useState(false);
   const [accountToUnlink, setAccountToUnlink] = useState<UnifiedAccount | null>(null);
+  const [showInactiveAccounts, setShowInactiveAccounts] = useState(false);
 
   const [bills, setBills] = useState<Bill[]>([]);
   const [categories, setCategories] = useState<TransactionCategory[]>([]);
@@ -149,13 +150,11 @@ export default function AccountsPage() {
           .from('accounts')
           .select('*')
           .eq('household_id', currentHousehold.id)
-          .eq('is_active', true)
           .order('name'),
         supabase
           .from('plaid_accounts')
           .select('*')
           .eq('household_id', currentHousehold.id)
-          .eq('is_active', true)
           .order('name'),
         supabase
           .from('plaid_items')
@@ -834,8 +833,32 @@ export default function AccountsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
-            {accounts.map((account) => {
+          <>
+            {(() => {
+              const activeAccounts = accounts.filter(a => a.is_active !== false);
+              const inactiveAccounts = accounts.filter(a => a.is_active === false);
+              const displayAccounts = showInactiveAccounts ? accounts : activeAccounts;
+              
+              return (
+                <>
+                  {inactiveAccounts.length > 0 && (
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm text-muted-foreground">
+                        {showInactiveAccounts 
+                          ? `Showing all accounts (${activeAccounts.length} active, ${inactiveAccounts.length} inactive)` 
+                          : `Showing ${activeAccounts.length} active accounts`}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowInactiveAccounts(!showInactiveAccounts)}
+                      >
+                        {showInactiveAccounts ? 'Hide Inactive' : `Show ${inactiveAccounts.length} Inactive`}
+                      </Button>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {displayAccounts.map((account) => {
               const institution = getInstitutionName(account);
               const mask = getAccountMask(account);
               const isLinked = account.source === 'plaid';
@@ -939,7 +962,11 @@ export default function AccountsPage() {
                 </Card>
               );
             })}
-          </div>
+                  </div>
+                </>
+              );
+            })()}
+          </>
         )}
 
         <Card>
@@ -1256,17 +1283,41 @@ export default function AccountsPage() {
       </AlertDialog>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Account</AlertDialogTitle>
+            <AlertDialogTitle className="text-destructive">Delete Account</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{accountToDelete?.name}"? This action cannot be undone.
+              Are you sure you want to permanently delete "{accountToDelete?.name}"?
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3 px-6">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <p className="text-sm font-semibold text-destructive mb-2">⚠️ Warning: This will permanently delete:</p>
+              <ul className="list-disc list-inside text-sm space-y-1">
+                <li>All transaction history for this account</li>
+                <li>All recurring transactions linked to this account</li>
+                <li>Any budgets or goals associated with this account</li>
+                <li>Any bill payment tracking for this account</li>
+              </ul>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm font-semibold text-blue-900 mb-1">💡 Consider this instead:</p>
+              <p className="text-sm text-blue-800">
+                Mark the account as <strong>Inactive</strong> to hide it from your main view while preserving all transaction history and data for records.
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-destructive">
+              This action cannot be undone!
+            </p>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAccount} disabled={loading}>
-              Delete
+            <AlertDialogAction 
+              onClick={handleDeleteAccount} 
+              disabled={loading}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {loading ? 'Deleting...' : 'Delete Permanently'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
