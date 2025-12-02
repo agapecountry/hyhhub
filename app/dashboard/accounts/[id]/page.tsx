@@ -551,7 +551,7 @@ export default function AccountDetailPage() {
             .eq('id', selectedPayee.account_id);
         }
 
-        // Also check plaid_accounts
+        // Also update Plaid account balances for transfers (checkbook model)
         const { data: destPlaidAccount, error: destPlaidError } = await supabase
           .from('plaid_accounts')
           .select('current_balance')
@@ -566,7 +566,9 @@ export default function AccountDetailPage() {
         }
       }
 
-      // Update source account balance
+      // Update source account balance (checkbook register model)
+      // Both manual and Plaid accounts: user maintains current_balance via manual transactions
+      // Plaid sync updates reconciled_balance for comparison, but doesn't overwrite current_balance
       const newBalance = (account?.balance || 0) + amount;
       const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
       const balanceField = isPlaidAccount ? 'current_balance' : 'balance';
@@ -674,12 +676,13 @@ export default function AccountDetailPage() {
 
         if (error) throw error;
 
-        // Update account balance for manual transactions only
+        // Update account balance (checkbook model for both manual and Plaid)
         const newBalance = (account?.balance || 0) + amountDifference;
         const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
+        const balanceField = isPlaidAccount ? 'current_balance' : 'balance';
         await supabase
           .from(table)
-          .update({ balance: newBalance })
+          .update({ [balanceField]: newBalance })
           .eq('id', accountId);
 
         toast({
@@ -727,12 +730,13 @@ export default function AccountDetailPage() {
 
       if (error) throw error;
 
-      // Update account balance
+      // Update account balance (checkbook model for both manual and Plaid)
       const newBalance = (account?.balance || 0) - transactionToDelete.amount;
       const table = isPlaidAccount ? 'plaid_accounts' : 'accounts';
+      const balanceField = isPlaidAccount ? 'current_balance' : 'balance';
       await supabase
         .from(table)
-        .update({ balance: newBalance })
+        .update({ [balanceField]: newBalance })
         .eq('id', accountId);
 
       toast({
