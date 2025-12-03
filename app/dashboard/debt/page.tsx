@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, differenceInMonths } from 'date-fns';
 import { PageHelpDialog } from '@/components/page-help-dialog';
 import { pageHelpContent } from '@/lib/page-help-content';
+import { formatCurrency } from '@/lib/format';
 
 interface Debt {
   id: string;
@@ -343,7 +344,7 @@ export default function DebtPage() {
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalDebt.toFixed(2)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(totalDebt)}</div>
               {totalOriginal > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
                   {((totalDebt / totalOriginal) * 100).toFixed(1)}% remaining
@@ -357,7 +358,7 @@ export default function DebtPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalMonthlyPayment.toFixed(2)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(totalMonthlyPayment)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 {activeDebts.length} active {activeDebts.length === 1 ? 'debt' : 'debts'}
               </p>
@@ -418,7 +419,7 @@ export default function DebtPage() {
                     <div>
                       <div className="text-xs text-muted-foreground">Total Interest Paid</div>
                       <div className="text-xl font-bold text-primary">
-                        ${avalancheTotalInterest.toFixed(2)}
+                        {formatCurrency(avalancheTotalInterest)}
                       </div>
                     </div>
                     {avalanchePayoffDate && (
@@ -465,7 +466,7 @@ export default function DebtPage() {
                     <div>
                       <div className="text-xs text-muted-foreground">Total Interest Paid</div>
                       <div className="text-xl font-bold text-primary">
-                        ${snowballTotalInterest.toFixed(2)}
+                        {formatCurrency(snowballTotalInterest)}
                       </div>
                     </div>
                     {snowballPayoffDate && (
@@ -560,7 +561,7 @@ export default function DebtPage() {
                         <p className="text-sm text-muted-foreground">
                           {chosenStrategy === 'avalanche'
                             ? `This debt has the highest interest rate (${focusDebt?.interest_rate.toFixed(2)}%), so paying it off first saves the most money.`
-                            : `This debt has the smallest balance ($${focusDebt?.current_balance.toFixed(2)}), so paying it off first provides a quick win.`}
+                            : `This debt has the smallest balance (${formatCurrency(focusDebt?.current_balance || 0)}), so paying it off first provides a quick win.`}
                         </p>
                       </div>
                     </div>
@@ -602,7 +603,7 @@ export default function DebtPage() {
                 Your Personalized Payment Plan
               </CardTitle>
               <CardDescription>
-                Based on your {chosenStrategy} strategy with ${extraPayment.toFixed(2)} extra monthly payment
+                Based on your {chosenStrategy} strategy with {formatCurrency(extraPayment)} extra monthly payment
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -627,17 +628,17 @@ export default function DebtPage() {
                           <p className="text-sm text-muted-foreground mb-3">
                             {chosenStrategy === 'avalanche'
                               ? `This debt has the highest interest rate (${focusDebt?.interest_rate.toFixed(3)}%), so paying it off first saves the most money.`
-                              : `This debt has the smallest balance ($${focusDebt?.current_balance.toFixed(2)}), so paying it off first provides a quick win.`}
+                              : `This debt has the smallest balance (${formatCurrency(focusDebt?.current_balance || 0)}), so paying it off first provides a quick win.`}
                           </p>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <div className="text-xs text-muted-foreground">Minimum Payment</div>
-                              <div className="text-lg font-bold">${focusDebt?.minimum_payment.toFixed(2)}</div>
+                              <div className="text-lg font-bold">{formatCurrency(focusDebt?.minimum_payment || 0)}</div>
                             </div>
                             <div>
                               <div className="text-xs text-muted-foreground">Recommended Payment</div>
                               <div className="text-lg font-bold text-primary">
-                                ${focusDebt && (focusDebt.minimum_payment + extraPayment).toFixed(2)}
+                                {formatCurrency(focusDebt ? focusDebt.minimum_payment + extraPayment : 0)}
                               </div>
                             </div>
                           </div>
@@ -660,7 +661,7 @@ export default function DebtPage() {
                     <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
                       <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                       <div className="text-xs text-muted-foreground">
-                        <strong>Important:</strong> Once {focusDebt?.name} is paid off, roll its payment (${focusDebt && (focusDebt.minimum_payment + extraPayment).toFixed(2)})
+                        <strong>Important:</strong> Once {focusDebt?.name} is paid off, roll its payment ({formatCurrency(focusDebt ? focusDebt.minimum_payment + extraPayment : 0)})
                         into the next debt on your list. This creates a snowball effect that accelerates your debt payoff!
                       </div>
                     </div>
@@ -779,7 +780,7 @@ export default function DebtPage() {
                         <div className="flex justify-between text-sm mb-2">
                           <span className="text-muted-foreground">Balance</span>
                           <span className="font-semibold">
-                            ${debt.current_balance.toFixed(2)} / ${debt.original_balance.toFixed(2)}
+                            {formatCurrency(debt.current_balance)} / {formatCurrency(debt.original_balance)}
                           </span>
                         </div>
                         <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
@@ -796,7 +797,7 @@ export default function DebtPage() {
                       <div className="grid grid-cols-3 gap-4 pt-2 border-t">
                         <div>
                           <div className="text-xs text-muted-foreground">Min Payment</div>
-                          <div className="font-semibold">${debt.minimum_payment.toFixed(2)}</div>
+                          <div className="font-semibold">{formatCurrency(debt.minimum_payment)}</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground">Due Day</div>
@@ -820,11 +821,11 @@ export default function DebtPage() {
                             <div>
                               <div className="text-xs font-medium text-muted-foreground">Recommended Payment</div>
                               <div className="text-lg font-bold text-primary">
-                                ${recommendedPayment.toFixed(2)}
+                                {formatCurrency(recommendedPayment)}
                               </div>
                             </div>
                             <Badge variant="default">
-                              +${extraPayment.toFixed(2)} extra
+                              +{formatCurrency(extraPayment)} extra
                             </Badge>
                           </div>
                         </div>
@@ -917,7 +918,7 @@ export default function DebtPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm text-muted-foreground">
-                      Original Balance: ${debt.original_balance.toFixed(2)}
+                      Original Balance: {formatCurrency(debt.original_balance)}
                     </div>
                   </CardContent>
                 </Card>
@@ -943,7 +944,7 @@ export default function DebtPage() {
                     {payments.map((payment) => (
                       <div key={payment.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
-                          <div className="font-medium">${payment.amount.toFixed(2)}</div>
+                          <div className="font-medium">{formatCurrency(payment.amount)}</div>
                           <div className="text-sm text-muted-foreground">
                             {format(parseISO(payment.payment_date), 'MMM d, yyyy')}
                           </div>
@@ -953,10 +954,10 @@ export default function DebtPage() {
                         </div>
                         <div className="text-right text-sm">
                           <div className="text-muted-foreground">
-                            Principal: ${payment.principal_paid.toFixed(2)}
+                            Principal: {formatCurrency(payment.principal_paid)}
                           </div>
                           <div className="text-muted-foreground">
-                            Interest: ${payment.interest_paid.toFixed(2)}
+                            Interest: {formatCurrency(payment.interest_paid)}
                           </div>
                         </div>
                       </div>

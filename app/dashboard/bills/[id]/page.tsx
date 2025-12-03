@@ -40,9 +40,6 @@ interface Payment {
     id: string;
     description: string;
     account_id: string;
-    accounts: {
-      name: string;
-    } | null;
   } | null;
 }
 
@@ -92,8 +89,7 @@ export default function BillDetailPage() {
           transactions (
             id,
             description,
-            account_id,
-            accounts:account_id (name)
+            account_id
           )
         `)
         .eq('bill_id', billId)
@@ -272,14 +268,7 @@ export default function BillDetailPage() {
                         </TableCell>
                         <TableCell>
                           {payment.transactions ? (
-                            <div>
-                              <div className="font-medium">{payment.transactions.description}</div>
-                              {payment.transactions.accounts && (
-                                <div className="text-xs text-muted-foreground">
-                                  {payment.transactions.accounts.name}
-                                </div>
-                              )}
-                            </div>
+                            <div className="font-medium">{payment.transactions.description}</div>
                           ) : (
                             <span className="text-muted-foreground">Manual Entry</span>
                           )}
