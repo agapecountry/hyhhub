@@ -94,7 +94,7 @@ export default function AccountsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const { currentHousehold } = useHousehold();
-  const { tier, hasFeature, canAddPlaidConnection, plaidConnections } = useSubscription();
+  const { tier, hasFeature, canAddPlaidConnection, plaidConnections, totalPlaidConnections } = useSubscription();
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<UnifiedAccount[]>([]);
   const [plaidItems, setPlaidItems] = useState<Map<string, PlaidItem>>(new Map());
@@ -792,7 +792,7 @@ export default function AccountsPage() {
                         'Manual account tracking only'
                       ) : (
                         <>
-                          {plaidConnections.filter(c => c.status === 'active').length} / {tier.features.plaid_connection_limit} bank connections
+                          {totalPlaidConnections} / {tier.features.plaid_connection_limit} bank connections
                           {tier.features.auto_refresh_accounts && ' • Auto-refresh on page load'}
                           {tier.features.auto_refresh_loans && ' • Includes loans'}
                           {!tier.features.auto_refresh_accounts && tier.features.manual_refresh_accounts && ' • Manual refresh only'}

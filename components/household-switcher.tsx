@@ -45,23 +45,24 @@ export function HouseholdSwitcher() {
     console.log('Creating household:', newHouseholdName);
     setLoading(true);
     try {
-      const { data: household, error: householdError } = await supabase
+      // Generate a UUID for the new household
+      const householdId = crypto.randomUUID();
+      
+      const { error: householdError } = await supabase
         .from('households')
-        .insert({ name: newHouseholdName.trim() })
-        .select()
-        .single();
+        .insert({ id: householdId, name: newHouseholdName.trim() });
 
       if (householdError) {
         console.error('Household creation error:', householdError);
         throw householdError;
       }
 
-      console.log('Household created:', household);
+      console.log('Household created with id:', householdId);
 
       const { error: memberError } = await supabase
         .from('household_members')
         .insert({
-          household_id: household.id,
+          household_id: householdId,
           user_id: user.id,
           role: 'admin',
         });
@@ -72,8 +73,42 @@ export function HouseholdSwitcher() {
       }
 
       console.log('Member added successfully');
+
+      // Copy user's subscription to the new household
+      // First, find the user's existing subscription from any household they own
+      const { data: existingSubscription } = await supabase
+        .from('household_subscriptions')
+        .select('tier_id, status, billing_period, current_period_start, current_period_end')
+        .eq('subscription_owner_id', user.id)
+        .eq('status', 'active')
+        .order('current_period_start', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingSubscription) {
+        // Copy the subscription to the new household
+        const { error: subError } = await supabase
+          .from('household_subscriptions')
+          .insert({
+            household_id: householdId,
+            tier_id: existingSubscription.tier_id,
+            subscription_owner_id: user.id,
+            status: existingSubscription.status,
+            billing_period: existingSubscription.billing_period || 'monthly',
+            current_period_start: existingSubscription.current_period_start,
+            current_period_end: existingSubscription.current_period_end,
+          });
+
+        if (subError) {
+          console.error('Subscription copy error:', subError);
+          // Don't throw - household is created, just log the error
+        } else {
+          console.log('Subscription copied to new household');
+        }
+      }
+
       await refreshHouseholds();
-      switchHousehold(household.id);
+      switchHousehold(householdId);
       setShowNewHouseholdDialog(false);
       setNewHouseholdName('');
       toast({

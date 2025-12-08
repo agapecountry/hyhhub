@@ -166,6 +166,11 @@ export default function MealsPage() {
 
   const [quickAddGroceryDialogOpen, setQuickAddGroceryDialogOpen] = useState(false);
 
+  // Multi-select for grocery items
+  const [grocerySelectionMode, setGrocerySelectionMode] = useState(false);
+  const [selectedGroceryItems, setSelectedGroceryItems] = useState<Set<string>>(new Set());
+  const [bulkDeleteGroceryDialogOpen, setBulkDeleteGroceryDialogOpen] = useState(false);
+
   useEffect(() => {
     if (currentHousehold) {
       loadRecipes();
@@ -1100,6 +1105,55 @@ export default function MealsPage() {
     }
   };
 
+  const toggleGroceryItemSelection = (itemId: string) => {
+    const newSelection = new Set(selectedGroceryItems);
+    if (newSelection.has(itemId)) {
+      newSelection.delete(itemId);
+    } else {
+      newSelection.add(itemId);
+    }
+    setSelectedGroceryItems(newSelection);
+  };
+
+  const cancelGrocerySelectionMode = () => {
+    setGrocerySelectionMode(false);
+    setSelectedGroceryItems(new Set());
+  };
+
+  const handleBulkDeleteGroceryItems = async () => {
+    if (selectedGroceryItems.size === 0) return;
+
+    setLoading(true);
+    try {
+      const itemIds = Array.from(selectedGroceryItems);
+      
+      const { error } = await supabase
+        .from('grocery_list_items')
+        .delete()
+        .in('id', itemIds);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `${itemIds.length} item${itemIds.length > 1 ? 's' : ''} deleted`,
+      });
+
+      setBulkDeleteGroceryDialogOpen(false);
+      setSelectedGroceryItems(new Set());
+      setGrocerySelectionMode(false);
+      loadGroceryItems();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete items',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   const getMealsForDay = (date: Date, type: string) => {
@@ -1688,8 +1742,46 @@ export default function MealsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Grocery List</CardTitle>
-                <CardDescription>Items to buy for your household</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Grocery List</CardTitle>
+                    <CardDescription>Items to buy for your household</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {grocerySelectionMode ? (
+                      <>
+                        <span className="text-sm text-muted-foreground">
+                          {selectedGroceryItems.size} selected
+                        </span>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setBulkDeleteGroceryDialogOpen(true)}
+                          disabled={selectedGroceryItems.size === 0 || loading}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete Selected
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={cancelGrocerySelectionMode}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setGrocerySelectionMode(true)}
+                        disabled={groceryItems.length === 0}
+                      >
+                        Select Multiple
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-2">
@@ -1740,15 +1832,30 @@ export default function MealsPage() {
                   {groceryItems.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center gap-3 p-2 rounded hover:bg-accent group"
+                      className={`flex items-center gap-3 p-2 rounded hover:bg-accent group ${
+                        grocerySelectionMode && selectedGroceryItems.has(item.id) ? 'bg-accent' : ''
+                      }`}
+                      onClick={grocerySelectionMode ? () => toggleGroceryItemSelection(item.id) : undefined}
                     >
-                      <Checkbox
-                        checked={item.is_purchased}
-                        onCheckedChange={() => handleToggleGroceryItem(item)}
-                      />
+                      {grocerySelectionMode ? (
+                        <Checkbox
+                          checked={selectedGroceryItems.has(item.id)}
+                          onCheckedChange={() => toggleGroceryItemSelection(item.id)}
+                        />
+                      ) : (
+                        <Checkbox
+                          checked={item.is_purchased}
+                          onCheckedChange={() => handleToggleGroceryItem(item)}
+                        />
+                      )}
                       <div
-                        className="flex-1 cursor-pointer"
-                        onClick={() => handleEditGroceryItem(item)}
+                        className={`flex-1 ${grocerySelectionMode ? 'cursor-pointer' : 'cursor-pointer'}`}
+                        onClick={(e) => {
+                          if (!grocerySelectionMode) {
+                            e.stopPropagation();
+                            handleEditGroceryItem(item);
+                          }
+                        }}
                       >
                         <div className={item.is_purchased ? 'line-through text-muted-foreground' : ''}>
                           {item.name}
@@ -1762,17 +1869,19 @@ export default function MealsPage() {
                           {item.category}
                         </Badge>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100"
-                        onClick={() => {
-                          setGroceryItemToDelete(item);
-                          setDeleteGroceryDialogOpen(true);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {!grocerySelectionMode && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="opacity-0 group-hover:opacity-100"
+                          onClick={() => {
+                            setGroceryItemToDelete(item);
+                            setDeleteGroceryDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2460,6 +2569,27 @@ export default function MealsPage() {
               className="bg-destructive hover:bg-destructive/90"
             >
               {loading ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteGroceryDialogOpen} onOpenChange={setBulkDeleteGroceryDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Grocery Items</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedGroceryItems.size} item{selectedGroceryItems.size > 1 ? 's' : ''} from your grocery list? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDeleteGroceryItems}
+              disabled={loading}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {loading ? 'Deleting...' : `Delete ${selectedGroceryItems.size} Item${selectedGroceryItems.size > 1 ? 's' : ''}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
