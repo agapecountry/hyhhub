@@ -10,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, Calendar, Trash2, CheckCircle2, Coins, Hand } from 'lucide-react';
+import { User, Calendar, Trash2, CheckCircle2, Coins, Hand, Search, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useEffect, useState } from 'react';
+import { useAuth } from '@/lib/auth-context';
+import { useEffect, useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { Switch } from '@/components/ui/switch';
 import { format, parseISO } from 'date-fns';
 
 interface Chore {
@@ -54,23 +56,71 @@ interface ChoreAssignmentsProps {
   chores: Chore[];
   onCoinsUpdate: () => void;
   onDeleteChore: (choreId: string) => void;
+  onAssignmentChange?: () => void;
   refreshKey?: number;
+  renderSection?: 'tabs' | 'members' | 'available' | 'all';
 }
 
-export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteChore, refreshKey }: ChoreAssignmentsProps) {
+export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteChore, onAssignmentChange, refreshKey, renderSection = 'all' }: ChoreAssignmentsProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [assignments, setAssignments] = useState<ChoreAssignment[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
+  const [showAllAssignments, setShowAllAssignments] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedChore, setSelectedChore] = useState<Chore | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [assignmentToDelete, setAssignmentToDelete] = useState<ChoreAssignment | null>(null);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [selectedAssignments, setSelectedAssignments] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [choreSearch, setChoreSearch] = useState('');
+  const [showChoreDropdown, setShowChoreDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   const [assignForm, setAssignForm] = useState({
     assigned_to: '',
     due_date: format(new Date(), 'yyyy-MM-dd'),
   });
+
+  // Filter chores based on search
+  const filteredChores = chores.filter(chore =>
+    chore.name.toLowerCase().includes(choreSearch.toLowerCase()) ||
+    chore.category.toLowerCase().includes(choreSearch.toLowerCase())
+  );
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setShowChoreDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Get the current user's household member ID
+  useEffect(() => {
+    const loadCurrentMember = async () => {
+      if (!householdId || !user) return;
+      
+      const { data } = await supabase
+        .from('household_members')
+        .select('id')
+        .eq('household_id', householdId)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data) {
+        setCurrentMemberId(data.id);
+      }
+    };
+    
+    loadCurrentMember();
+  }, [householdId, user]);
 
   useEffect(() => {
     loadAssignments();
@@ -150,6 +200,7 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
       });
 
       loadAssignments();
+      onAssignmentChange?.();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -187,6 +238,7 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
 
       setAssignDialogOpen(false);
       loadAssignments();
+      onAssignmentChange?.();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -302,6 +354,7 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
       loadAssignments();
       setDeleteDialogOpen(false);
       setAssignmentToDelete(null);
+      onAssignmentChange?.();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -311,6 +364,75 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedAssignments.size === 0) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('chore_assignments')
+        .delete()
+        .in('id', Array.from(selectedAssignments));
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `${selectedAssignments.size} assignment(s) deleted successfully`,
+      });
+
+      loadAssignments();
+      setBulkDeleteDialogOpen(false);
+      setSelectedAssignments(new Set());
+      setSelectionMode(false);
+      onAssignmentChange?.();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete assignments',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleAssignmentSelection = (assignmentId: string) => {
+    setSelectedAssignments(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(assignmentId)) {
+        newSet.delete(assignmentId);
+      } else {
+        newSet.add(assignmentId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = (assignmentList: ChoreAssignment[]) => {
+    const allSelected = assignmentList.every(a => selectedAssignments.has(a.id));
+    if (allSelected) {
+      // Deselect all in this list
+      setSelectedAssignments(prev => {
+        const newSet = new Set(prev);
+        assignmentList.forEach(a => newSet.delete(a.id));
+        return newSet;
+      });
+    } else {
+      // Select all in this list
+      setSelectedAssignments(prev => {
+        const newSet = new Set(prev);
+        assignmentList.forEach(a => newSet.add(a.id));
+        return newSet;
+      });
+    }
+  };
+
+  const cancelSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedAssignments(new Set());
   };
 
   const getCategoryIcon = (category: string) => {
@@ -325,19 +447,101 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
     return icons[category] || '📋';
   };
 
+  // Filter assignments based on toggle and date range
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  // Different date ranges: 3 days for "my chores", 7 days for "show all"
+  const daysToShow = showAllAssignments ? 7 : 3;
+  const endDate = new Date(today);
+  endDate.setDate(endDate.getDate() + daysToShow);
+  endDate.setHours(23, 59, 59, 999);
+
+  // Open assignments - always show all (no member filter), no date filter
   const openAssignments = assignments.filter(a => !a.completed && !a.assigned_to);
-  const pendingAssignments = assignments.filter(a => !a.completed && a.assigned_to);
-  const completedAssignments = assignments.filter(a => a.completed);
+
+  // Pending/Assigned - filter by member unless "show all" is on
+  const pendingAssignments = assignments.filter(a => {
+    if (a.completed || !a.assigned_to) return false;
+    
+    // Filter by member if not showing all
+    if (!showAllAssignments && currentMemberId && a.assigned_to !== currentMemberId) {
+      return false;
+    }
+    
+    const dueDate = parseISO(a.due_date);
+    return dueDate < today || dueDate <= endDate;
+  });
+
+  // Completed - filter by member unless "show all" is on
+  const completedAssignments = assignments.filter(a => {
+    if (!a.completed) return false;
+    
+    // Filter by member if not showing all
+    if (!showAllAssignments && currentMemberId && a.assigned_to !== currentMemberId) {
+      return false;
+    }
+    
+    return true;
+  });
 
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Assignments</CardTitle>
-          <CardDescription>Track assigned chores</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Assignments</CardTitle>
+              <CardDescription>Track assigned chores</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {selectionMode ? (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    {selectedAssignments.size} selected
+                  </span>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setBulkDeleteDialogOpen(true)}
+                    disabled={selectedAssignments.size === 0 || loading}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete Selected
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={cancelSelectionMode}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectionMode(true)}
+                  disabled={assignments.length === 0}
+                >
+                  Select Multiple
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <Switch
+              id="show-all"
+              checked={showAllAssignments}
+              onCheckedChange={setShowAllAssignments}
+            />
+            <Label htmlFor="show-all" className="text-sm text-muted-foreground cursor-pointer">
+              Show all household members
+            </Label>
+          </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="open">
+          <Tabs defaultValue="pending">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="open">
                 Open ({openAssignments.length})
@@ -351,6 +555,15 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
             </TabsList>
 
             <TabsContent value="open" className="space-y-3 mt-4">
+              {selectionMode && openAssignments.length > 0 && (
+                <div className="flex items-center gap-2 pb-2 border-b">
+                  <Checkbox
+                    checked={openAssignments.every(a => selectedAssignments.has(a.id))}
+                    onCheckedChange={() => toggleSelectAll(openAssignments)}
+                  />
+                  <span className="text-sm text-muted-foreground">Select all open</span>
+                </div>
+              )}
               {openAssignments.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No open chores available for pickup
@@ -359,7 +572,15 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
                 openAssignments.map((assignment) => (
                   <div key={assignment.id} className="p-4 rounded-lg border border-dashed border-primary/50 bg-primary/5">
                     <div className="flex items-start gap-3">
-                      <Hand className="h-5 w-5 text-primary mt-1" />
+                      {selectionMode ? (
+                        <Checkbox
+                          checked={selectedAssignments.has(assignment.id)}
+                          onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <Hand className="h-5 w-5 text-primary mt-1" />
+                      )}
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xl">{getCategoryIcon(assignment.chores.category)}</span>
@@ -381,35 +602,39 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
                             {assignment.chores.points} coins
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">Claim this chore:</span>
-                          <div className="flex gap-2 flex-wrap">
-                            {members.map((member) => (
-                              <Button
-                                key={member.id}
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleClaimChore(assignment, member.id)}
-                                disabled={loading}
-                                style={{ borderColor: member.color, color: member.color }}
-                              >
-                                {member.name}
-                              </Button>
-                            ))}
+                        {!selectionMode && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">Claim this chore:</span>
+                            <div className="flex gap-2 flex-wrap">
+                              {members.map((member) => (
+                                <Button
+                                  key={member.id}
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleClaimChore(assignment, member.id)}
+                                  disabled={loading}
+                                  style={{ borderColor: member.color, color: member.color }}
+                                >
+                                  {member.name}
+                                </Button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setAssignmentToDelete(assignment);
-                          setDeleteDialogOpen(true);
-                        }}
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
+                      {!selectionMode && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setAssignmentToDelete(assignment);
+                            setDeleteDialogOpen(true);
+                          }}
+                          disabled={loading}
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -417,6 +642,15 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
             </TabsContent>
 
             <TabsContent value="pending" className="space-y-3 mt-4">
+              {selectionMode && pendingAssignments.length > 0 && (
+                <div className="flex items-center gap-2 pb-2 border-b">
+                  <Checkbox
+                    checked={pendingAssignments.every(a => selectedAssignments.has(a.id))}
+                    onCheckedChange={() => toggleSelectAll(pendingAssignments)}
+                  />
+                  <span className="text-sm text-muted-foreground">Select all assigned</span>
+                </div>
+              )}
               {pendingAssignments.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No assigned chores
@@ -424,11 +658,19 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
               ) : (
                 pendingAssignments.map((assignment) => (
                   <div key={assignment.id} className="flex items-start gap-3 p-4 rounded-lg border">
-                    <Checkbox
-                      checked={assignment.completed}
-                      onCheckedChange={() => handleToggleComplete(assignment)}
-                      className="mt-1"
-                    />
+                    {selectionMode ? (
+                      <Checkbox
+                        checked={selectedAssignments.has(assignment.id)}
+                        onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                        className="mt-1"
+                      />
+                    ) : (
+                      <Checkbox
+                        checked={assignment.completed}
+                        onCheckedChange={() => handleToggleComplete(assignment)}
+                        className="mt-1"
+                      />
+                    )}
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xl">{getCategoryIcon(assignment.chores.category)}</span>
@@ -465,23 +707,34 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
                         </Badge>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setAssignmentToDelete(assignment);
-                        setDeleteDialogOpen(true);
-                      }}
-                      disabled={loading}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+                    {!selectionMode && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setAssignmentToDelete(assignment);
+                          setDeleteDialogOpen(true);
+                        }}
+                        disabled={loading}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    )}
                   </div>
                 ))
               )}
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-3 mt-4">
+              {selectionMode && completedAssignments.length > 0 && (
+                <div className="flex items-center gap-2 pb-2 border-b">
+                  <Checkbox
+                    checked={completedAssignments.every(a => selectedAssignments.has(a.id))}
+                    onCheckedChange={() => toggleSelectAll(completedAssignments)}
+                  />
+                  <span className="text-sm text-muted-foreground">Select all completed</span>
+                </div>
+              )}
               {completedAssignments.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No completed chores yet
@@ -489,11 +742,19 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
               ) : (
                 completedAssignments.map((assignment) => (
                   <div key={assignment.id} className="flex items-start gap-3 p-4 rounded-lg border opacity-75">
-                    <Checkbox
-                      checked={assignment.completed}
-                      onCheckedChange={() => handleToggleComplete(assignment)}
-                      className="mt-1"
-                    />
+                    {selectionMode ? (
+                      <Checkbox
+                        checked={selectedAssignments.has(assignment.id)}
+                        onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                        className="mt-1"
+                      />
+                    ) : (
+                      <Checkbox
+                        checked={assignment.completed}
+                        onCheckedChange={() => handleToggleComplete(assignment)}
+                        className="mt-1"
+                      />
+                    )}
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xl opacity-50">{getCategoryIcon(assignment.chores.category)}</span>
@@ -519,17 +780,19 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
                         </Badge>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setAssignmentToDelete(assignment);
-                        setDeleteDialogOpen(true);
-                      }}
-                      disabled={loading}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+                    {!selectionMode && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setAssignmentToDelete(assignment);
+                          setDeleteDialogOpen(true);
+                        }}
+                        disabled={loading}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    )}
                   </div>
                 ))
               )}
@@ -537,100 +800,6 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
           </Tabs>
         </CardContent>
       </Card>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Available Chores</CardTitle>
-            <CardDescription>Assign chores to household members</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chores.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No chores available
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {chores.map((chore) => (
-                  <div
-                    key={chore.id}
-                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent transition-colors"
-                  >
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="text-lg">{getCategoryIcon(chore.category)}</span>
-                      <div className="flex-1">
-                        <div className="font-medium">{chore.name}</div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs font-semibold text-primary">
-                            {chore.points} coins
-                          </span>
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {chore.difficulty}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenAssignDialog(chore)}
-                      >
-                        Assign
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onDeleteChore(chore.id)}
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Household Members</CardTitle>
-            <CardDescription>Current coin balances</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {members.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No members found
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {members.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center justify-between p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center font-semibold"
-                        style={{ backgroundColor: `${member.color}20`, color: member.color }}
-                      >
-                        {member.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="font-medium">{member.name}</div>
-                    </div>
-                    <div className="flex items-center gap-1 text-primary font-semibold">
-                      <Coins className="h-4 w-4" />
-                      <span>{member.current_coins || 0}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
 
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
         <DialogContent>
@@ -695,6 +864,27 @@ export function ChoreAssignments({ householdId, chores, onCoinsUpdate, onDeleteC
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteAssignment} disabled={loading}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedAssignments.size} Assignment(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedAssignments.size} selected chore assignment(s)? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBulkDelete} 
+              disabled={loading}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {loading ? 'Deleting...' : `Delete ${selectedAssignments.size} Assignment(s)`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -71,6 +71,20 @@ interface PaycheckPeriod {
   payments: PaymentScheduleItem[];
 }
 
+interface StoredScheduledPayment {
+  id: string;
+  paycheck_id: string;
+  paycheck_date: string;
+  payment_type: 'bill' | 'debt' | 'extra-debt' | 'budget';
+  payment_id: string;
+  payment_name: string;
+  amount: number;
+  due_date: string;
+  is_paid: boolean;
+  is_split: boolean;
+  split_part: string | null;
+}
+
 export function PaycheckPlanner() {
   const { currentHousehold } = useHousehold();
   const [paychecks, setPaychecks] = useState<PaycheckSettings[]>([]);
@@ -90,6 +104,7 @@ export function PaycheckPlanner() {
   const [paycheckToDelete, setPaycheckToDelete] = useState<PaycheckSettings | null>(null);
   const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
   const [manualPayments, setManualPayments] = useState<Map<string, { isPaid: boolean; isDismissed: boolean; dueDate?: string }>>(new Map());
+  const [storedScheduledPayments, setStoredScheduledPayments] = useState<StoredScheduledPayment[]>([]);
 
   const [formData, setFormData] = useState({
     paycheck_name: '',
@@ -103,6 +118,7 @@ export function PaycheckPlanner() {
       loadPaychecks();
       loadBillsAndDebts();
       loadManualPayments();
+      loadStoredScheduledPayments();
     }
   }, [currentHousehold]);
 
@@ -113,7 +129,7 @@ export function PaycheckPlanner() {
       setSchedule([]);
       setUnassignedPayments([]);
     }
-  }, [paychecks, bills, debts, budgetCategories, debtStrategy, extraPayment]);
+  }, [paychecks, bills, debts, budgetCategories, debtStrategy, extraPayment, storedScheduledPayments]);
 
   const loadPaychecks = async () => {
     if (!currentHousehold) return;
@@ -128,32 +144,8 @@ export function PaycheckPlanner() {
 
       if (error) throw error;
 
-      // Auto-advance any paychecks whose next_paycheck_date has passed
-      const today = startOfDay(new Date());
-
-      for (const paycheck of (data || [])) {
-        const nextPaycheckDate = parseISO(paycheck.next_paycheck_date);
-        if (isBefore(nextPaycheckDate, today)) {
-          // Calculate the new next paycheck date
-          let newNextDate = nextPaycheckDate;
-          while (isBefore(newNextDate, today)) {
-            newNextDate = calculateNextPaycheckDate(newNextDate, paycheck.payment_frequency);
-          }
-
-          // Update the database
-          await supabase
-            .from('paycheck_settings')
-            .update({
-              next_paycheck_date: format(newNextDate, 'yyyy-MM-dd'),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', paycheck.id);
-
-          // Update local data
-          paycheck.next_paycheck_date = format(newNextDate, 'yyyy-MM-dd');
-        }
-      }
-
+      // Don't auto-advance paycheck dates here - let the schedule generation
+      // handle past paychecks so they can appear in history with unpaid items
       setPaychecks(data || []);
     } catch (error: any) {
       console.error('Error loading paychecks:', error);
@@ -185,6 +177,26 @@ export function PaycheckPlanner() {
       setManualPayments(paymentsMap);
     } catch (error: any) {
       console.error('Error loading manual payments:', error);
+    }
+  };
+
+  const loadStoredScheduledPayments = async () => {
+    if (!currentHousehold) return;
+
+    try {
+      // Load scheduled payments from the last 2 months
+      const startDate = addMonths(new Date(), -2);
+      const { data, error } = await supabase
+        .from('paycheck_scheduled_payments')
+        .select('*')
+        .eq('household_id', currentHousehold.id)
+        .gte('paycheck_date', format(startDate, 'yyyy-MM-dd'))
+        .order('paycheck_date', { ascending: false });
+
+      if (error) throw error;
+      setStoredScheduledPayments(data || []);
+    } catch (error: any) {
+      console.error('Error loading stored scheduled payments:', error);
     }
   };
 
@@ -427,11 +439,29 @@ export function PaycheckPlanner() {
         if (error) throw error;
       }
 
+      // Also update the stored scheduled payments table
+      await supabase
+        .from('paycheck_scheduled_payments')
+        .update({ is_paid: newPaidStatus })
+        .eq('household_id', currentHousehold.id)
+        .eq('payment_type', paymentType)
+        .eq('payment_id', paymentId)
+        .eq('due_date', dueDateStr);
+
       // Update local state
       const updatedMap = new Map(manualPayments);
       const currentState = updatedMap.get(key) || { isPaid: false, isDismissed: false };
       updatedMap.set(key, { ...currentState, isPaid: newPaidStatus, dueDate: dueDateStr });
       setManualPayments(updatedMap);
+
+      // Update stored scheduled payments local state
+      setStoredScheduledPayments(prev => 
+        prev.map(sp => 
+          sp.payment_type === paymentType && sp.payment_id === paymentId && sp.due_date === dueDateStr
+            ? { ...sp, is_paid: newPaidStatus }
+            : sp
+        )
+      );
 
       toast({
         title: newPaidStatus ? 'Marked as Paid' : 'Unmarked as Paid',
@@ -532,6 +562,21 @@ export function PaycheckPlanner() {
     }
   };
 
+  const calculatePreviousPaycheckDate = (currentDate: Date, frequency: string): Date => {
+    switch (frequency) {
+      case 'weekly':
+        return addWeeks(currentDate, -1);
+      case 'biweekly':
+        return addWeeks(currentDate, -2);
+      case 'semimonthly':
+        return addDays(currentDate, -15);
+      case 'monthly':
+        return addMonths(currentDate, -1);
+      default:
+        return addWeeks(currentDate, -2);
+    }
+  };
+
   const getNextDueDate = (dayOfMonth: number, fromDate: Date): Date => {
     const result = new Date(fromDate);
     result.setDate(dayOfMonth);
@@ -543,16 +588,86 @@ export function PaycheckPlanner() {
     return result;
   };
 
+  const saveNewScheduledPayments = async (scheduledPeriods: PaycheckPeriod[]) => {
+    if (!currentHousehold) return;
+
+    try {
+      for (const period of scheduledPeriods) {
+        const paycheckDateStr = format(period.paycheckDate, 'yyyy-MM-dd');
+        
+        // Check if this paycheck already has stored payments
+        const existingPayments = storedScheduledPayments.filter(
+          sp => sp.paycheck_date === paycheckDateStr && sp.paycheck_id === period.paycheckId
+        );
+        
+        // Only save if no existing payments for this paycheck date
+        if (existingPayments.length === 0 && period.payments.length > 0) {
+          const paymentsToInsert = period.payments.map(payment => ({
+            household_id: currentHousehold.id,
+            paycheck_id: period.paycheckId,
+            paycheck_date: paycheckDateStr,
+            payment_type: payment.type,
+            payment_id: payment.id,
+            payment_name: payment.name,
+            amount: payment.amount,
+            due_date: format(payment.due_date, 'yyyy-MM-dd'),
+            is_paid: payment.isPaid || false,
+            is_split: payment.isSplit || false,
+            split_part: payment.splitPart || null,
+          }));
+
+          const { error } = await supabase
+            .from('paycheck_scheduled_payments')
+            .insert(paymentsToInsert);
+
+          if (error) {
+            console.error('Error saving scheduled payments:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in saveNewScheduledPayments:', error);
+    }
+  };
+
   const generateSchedule = async () => {
     if (paychecks.length === 0 || !currentHousehold) return;
 
     const endDate = addMonths(new Date(), 3);
     const today = startOfDay(new Date());
+    // Look back 2 months to include past paychecks that may have unpaid items
+    const startDate = addMonths(today, -2);
     const allPaycheckDates: Array<{ date: Date; name: string; id: string; amount: number }> = [];
 
     paychecks.forEach(paycheck => {
-      let currentPaycheckDate = parseISO(paycheck.next_paycheck_date);
+      // Use next_paycheck_date as an anchor point to calculate all paycheck dates
+      // (both past and future) based on frequency
+      const anchorDate = parseISO(paycheck.next_paycheck_date);
+      
+      // First, calculate backwards from anchor to find past paycheck dates
+      let pastDate = anchorDate;
+      const pastDates: Date[] = [];
+      
+      // Go backwards until we're before the start date (2 months ago)
+      while (true) {
+        const prevDate = calculatePreviousPaycheckDate(pastDate, paycheck.payment_frequency);
+        if (isBefore(prevDate, startDate)) break;
+        pastDates.unshift(prevDate);
+        pastDate = prevDate;
+      }
+      
+      // Add past dates
+      pastDates.forEach(date => {
+        allPaycheckDates.push({
+          date: date,
+          name: paycheck.paycheck_name,
+          id: paycheck.id,
+          amount: paycheck.net_pay_amount,
+        });
+      });
 
+      // Now add from the anchor date forward
+      let currentPaycheckDate = anchorDate;
       while (isBefore(currentPaycheckDate, endDate)) {
         allPaycheckDates.push({
           date: currentPaycheckDate,
@@ -566,18 +681,60 @@ export function PaycheckPlanner() {
 
     allPaycheckDates.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    const allPaycheckPeriods: PaycheckPeriod[] = allPaycheckDates.map(paycheck => ({
-      paycheckDate: paycheck.date,
-      paycheckName: paycheck.name,
-      paycheckId: paycheck.id,
-      totalIncome: paycheck.amount,
-      totalPayments: 0,
-      remaining: paycheck.amount,
-      payments: [],
-    }));
+    // Separate past and future paycheck periods
+    // Past periods use STORED scheduled payments (locked in)
+    // Future periods get freshly scheduled
+    const pastPaycheckPeriods: PaycheckPeriod[] = [];
+    const futurePaycheckPeriods: PaycheckPeriod[] = [];
 
-    const { schedule: generatedSchedule, unassigned } = generatePaycheckSchedule(
-      allPaycheckPeriods,
+    allPaycheckDates.forEach(paycheck => {
+      const paycheckDateStr = format(paycheck.date, 'yyyy-MM-dd');
+      
+      if (isBefore(paycheck.date, today)) {
+        // For past paychecks, load from stored scheduled payments
+        const storedPayments = storedScheduledPayments.filter(
+          sp => sp.paycheck_date === paycheckDateStr && sp.paycheck_id === paycheck.id
+        );
+        
+        const payments: PaymentScheduleItem[] = storedPayments.map(sp => ({
+          id: sp.payment_id,
+          name: sp.payment_name,
+          amount: sp.amount,
+          due_date: parseISO(sp.due_date),
+          type: sp.payment_type,
+          status: 'on-time' as const,
+          isSplit: sp.is_split,
+          splitPart: sp.split_part || undefined,
+          isPaid: sp.is_paid,
+        }));
+        
+        const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+        
+        pastPaycheckPeriods.push({
+          paycheckDate: paycheck.date,
+          paycheckName: paycheck.name,
+          paycheckId: paycheck.id,
+          totalIncome: paycheck.amount,
+          totalPayments,
+          remaining: paycheck.amount - totalPayments,
+          payments,
+        });
+      } else {
+        futurePaycheckPeriods.push({
+          paycheckDate: paycheck.date,
+          paycheckName: paycheck.name,
+          paycheckId: paycheck.id,
+          totalIncome: paycheck.amount,
+          totalPayments: 0,
+          remaining: paycheck.amount,
+          payments: [],
+        });
+      }
+    });
+
+    // Only run the scheduler on FUTURE paycheck periods
+    const { schedule: futureSchedule, unassigned } = generatePaycheckSchedule(
+      futurePaycheckPeriods,
       bills,
       debts,
       budgetCategories,
@@ -585,13 +742,19 @@ export function PaycheckPlanner() {
       extraPayment
     );
 
-    // Load transactions to mark paid status
+    // Save newly scheduled payments for future paychecks that don't have stored data yet
+    await saveNewScheduledPayments(futureSchedule);
+
+    // Combine past periods (with stored payments) with future scheduled periods
+    const generatedSchedule = [...pastPaycheckPeriods, ...futureSchedule];
+
+    // Load transactions to mark paid status (look back 2 months to match schedule lookback)
     try {
       const { data: transactions, error: transError } = await supabase
         .from('transactions')
         .select('id, date, amount, debt_id, payee_id, payees(bill_id)')
         .eq('household_id', currentHousehold.id)
-        .gte('date', format(addMonths(today, -1), 'yyyy-MM-dd'))
+        .gte('date', format(startDate, 'yyyy-MM-dd'))
         .lte('date', format(endDate, 'yyyy-MM-dd'));
 
       if (transError) {
@@ -677,9 +840,12 @@ export function PaycheckPlanner() {
     generatedSchedule.forEach(period => {
       // If paycheck date is in the past
       if (isBefore(period.paycheckDate, today)) {
-        // Check if all payments are paid
-        const allPaid = period.payments.length > 0 && period.payments.every(p => p.isPaid);
-        if (allPaid) {
+        // Paychecks with no payments go to history automatically once date passes
+        // Paychecks with payments go to history only when ALL payments are marked paid
+        const hasNoPayments = period.payments.length === 0;
+        const allPaymentsPaid = period.payments.length > 0 && period.payments.every(p => p.isPaid);
+        
+        if (hasNoPayments || allPaymentsPaid) {
           completedSchedule.push(period);
         } else {
           activeSchedule.push(period);
@@ -707,6 +873,8 @@ export function PaycheckPlanner() {
     });
 
     setSchedule(activeSchedule);
+    // Sort history with most recent paycheck first
+    completedSchedule.sort((a, b) => b.paycheckDate.getTime() - a.paycheckDate.getTime());
     setHistorySchedule(completedSchedule);
     setUnassignedPayments(filteredUnassigned);
     setDismissedPayments(dismissedList);
@@ -964,7 +1132,7 @@ export function PaycheckPlanner() {
                   {period.remaining < 0 ? 'Over Budget' : 'Remaining'}
                 </p>
                 <p className={`text-xl font-bold ${period.remaining < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                  {period.remaining < 0 ? '-' : ''}${Math.abs(period.remaining).toFixed(2)}
+                  {period.remaining < 0 ? '-' : ''}{formatCurrency(Math.abs(period.remaining))}
                 </p>
               </div>
             </div>
@@ -972,7 +1140,7 @@ export function PaycheckPlanner() {
               <Alert variant="destructive" className="mt-4">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  This paycheck is over budget by ${Math.abs(period.remaining).toFixed(2)}. Consider adjusting payment assignments or increasing income.
+                  This paycheck is over budget by {formatCurrency(Math.abs(period.remaining))}. Consider adjusting payment assignments or increasing income.
                 </AlertDescription>
               </Alert>
             )}
@@ -982,7 +1150,7 @@ export function PaycheckPlanner() {
               <div className="flex justify-between items-center pb-3 border-b">
                 <span className="text-sm font-medium">Income</span>
                 <span className="text-sm font-semibold text-green-600">
-                  +${period.totalIncome.toFixed(2)}
+                  +{formatCurrency(period.totalIncome)}
                 </span>
               </div>
 
@@ -1047,7 +1215,7 @@ export function PaycheckPlanner() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className={`font-semibold ${payment.isFocusDebt ? 'text-amber-700' : 'text-destructive'}`}>
-                          -${payment.amount.toFixed(2)}
+                          -{formatCurrency(payment.amount)}
                         </span>
                         {(() => {
                           const dueDateStr = format(payment.due_date, 'yyyy-MM-dd');
@@ -1087,7 +1255,7 @@ export function PaycheckPlanner() {
               <div className="flex justify-between items-center pt-3 border-t">
                 <span className="font-medium">Total Payments</span>
                 <span className="font-bold text-destructive">
-                  -${period.totalPayments.toFixed(2)}
+                  -{formatCurrency(period.totalPayments)}
                 </span>
               </div>
             </div>
@@ -1142,7 +1310,7 @@ export function PaycheckPlanner() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-orange-600">${payment.amount.toFixed(2)}</p>
+                        <p className="font-bold text-orange-600">{formatCurrency(payment.amount)}</p>
                         <p className="text-xs text-muted-foreground">Dismissed</p>
                       </div>
                     </div>
@@ -1181,7 +1349,7 @@ export function PaycheckPlanner() {
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">Saved</p>
                       <p className="text-xl font-bold text-green-600">
-                        ${period.remaining.toFixed(2)}
+                        {formatCurrency(period.remaining)}
                       </p>
                     </div>
                   </div>
@@ -1191,7 +1359,7 @@ export function PaycheckPlanner() {
                     <div className="flex justify-between items-center pb-3 border-b">
                       <span className="text-sm font-medium">Income</span>
                       <span className="text-sm font-semibold text-green-600">
-                        +${period.totalIncome.toFixed(2)}
+                        +{formatCurrency(period.totalIncome)}
                       </span>
                     </div>
 
@@ -1223,7 +1391,7 @@ export function PaycheckPlanner() {
                             </div>
                           </div>
                           <span className="font-semibold text-sm text-muted-foreground">
-                            -${payment.amount.toFixed(2)}
+                            -{formatCurrency(payment.amount)}
                           </span>
                         </div>
                       ))}
@@ -1232,7 +1400,7 @@ export function PaycheckPlanner() {
                     <div className="flex justify-between items-center pt-3 border-t">
                       <span className="font-medium">Total Paid</span>
                       <span className="font-bold text-muted-foreground">
-                        -${period.totalPayments.toFixed(2)}
+                        -{formatCurrency(period.totalPayments)}
                       </span>
                     </div>
                   </div>

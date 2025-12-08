@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CreditCard, Apple, AlertCircle, Clock, Users, Edit } from 'lucide-react';
+import { Calendar, CreditCard, Apple, AlertCircle, Clock, Users, Edit, CheckSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,13 +10,14 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
+import { useAuth } from '@/lib/auth-context';
 import { format, addDays, startOfDay, endOfDay, isToday, isTomorrow, parseISO } from 'date-fns';
 import { formatCurrency } from '@/lib/format';
 import Link from 'next/link';
 
 interface DayItem {
   id: string;
-  type: 'debt' | 'event' | 'pantry';
+  type: 'debt' | 'event' | 'pantry' | 'chore';
   title: string;
   subtitle?: string;
   time?: string;
@@ -63,23 +64,45 @@ interface DayData {
 
 export function UpcomingWeekWidget() {
   const { currentHousehold } = useHousehold();
+  const { user } = useAuth();
   const [weekData, setWeekData] = useState<DayData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
   const [viewRecipeDialogOpen, setViewRecipeDialogOpen] = useState(false);
   const [customMealDialogOpen, setCustomMealDialogOpen] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedMealPlan, setSelectedMealPlan] = useState<MealPlan | null>(null);
   const [recipeIngredients, setRecipeIngredients] = useState<RecipeIngredient[]>([]);
 
+  // Get the current user's household member ID
+  useEffect(() => {
+    const loadCurrentMember = async () => {
+      if (!currentHousehold || !user) return;
+      
+      const { data } = await supabase
+        .from('household_members')
+        .select('id')
+        .eq('household_id', currentHousehold.id)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data) {
+        setCurrentMemberId(data.id);
+      }
+    };
+    
+    loadCurrentMember();
+  }, [currentHousehold, user]);
+
   const loadWeekData = useCallback(async () => {
-    if (!currentHousehold) return;
+    if (!currentHousehold || !currentMemberId) return;
 
     setLoading(true);
     try {
       const today = startOfDay(new Date());
       const endOfWeek = endOfDay(addDays(today, 6));
 
-      const [debtsResult, eventsResult, pantryResult, mealsResult] = await Promise.all([
+      const [debtsResult, eventsResult, pantryResult, mealsResult, choresResult] = await Promise.all([
         supabase
           .from('debts')
           .select('id, name, payment_day, minimum_payment, is_active')
@@ -108,17 +131,35 @@ export function UpcomingWeekWidget() {
           .gte('meal_date', format(today, 'yyyy-MM-dd'))
           .lte('meal_date', format(endOfWeek, 'yyyy-MM-dd'))
           .order('meal_date'),
+        supabase
+          .from('chore_assignments')
+          .select(`
+            id,
+            due_date,
+            completed,
+            assigned_to,
+            chores(id, name, points),
+            assigned_member:household_members!assigned_to(id, name, color)
+          `)
+          .eq('household_id', currentHousehold.id)
+          .eq('completed', false)
+          .eq('assigned_to', currentMemberId)
+          .gte('due_date', format(today, 'yyyy-MM-dd'))
+          .lte('due_date', format(endOfWeek, 'yyyy-MM-dd'))
+          .order('due_date'),
       ]);
 
       if (debtsResult.error) throw debtsResult.error;
       if (eventsResult.error) throw eventsResult.error;
       if (pantryResult.error) throw pantryResult.error;
       if (mealsResult.error) throw mealsResult.error;
+      if (choresResult.error) throw choresResult.error;
 
       const debts = debtsResult.data || [];
       const events = eventsResult.data || [];
       const pantryItems = pantryResult.data || [];
       const meals = mealsResult.data || [];
+      const chores = choresResult.data || [];
 
       const days: DayData[] = [];
       for (let i = 0; i < 7; i++) {
@@ -164,6 +205,21 @@ export function UpcomingWeekWidget() {
           }
         });
 
+        // Add chore assignments for this day
+        chores.forEach((chore: any) => {
+          if (chore.due_date === format(date, 'yyyy-MM-dd')) {
+            const assignedName = chore.assigned_member?.name || 'Unassigned';
+            items.push({
+              id: chore.id,
+              type: 'chore',
+              title: chore.chores?.name || 'Chore',
+              subtitle: assignedName,
+              color: chore.assigned_member?.color,
+              priority: i === 0 ? 'high' : 'medium',
+            });
+          }
+        });
+
         let label = format(date, 'EEE, MMM d');
         if (isToday(date)) {
           label = 'Today';
@@ -183,13 +239,13 @@ export function UpcomingWeekWidget() {
     } finally {
       setLoading(false);
     }
-  }, [currentHousehold]);
+  }, [currentHousehold, currentMemberId]);
 
   useEffect(() => {
-    if (currentHousehold) {
+    if (currentHousehold && currentMemberId) {
       loadWeekData();
     }
-  }, [currentHousehold, loadWeekData]);
+  }, [currentHousehold, currentMemberId, loadWeekData]);
 
   const getItemIcon = (type: string) => {
     switch (type) {
@@ -199,6 +255,8 @@ export function UpcomingWeekWidget() {
         return <Calendar className="h-4 w-4" />;
       case 'pantry':
         return <Apple className="h-4 w-4" />;
+      case 'chore':
+        return <CheckSquare className="h-4 w-4" />;
       default:
         return null;
     }
@@ -307,6 +365,8 @@ export function UpcomingWeekWidget() {
                               return '/dashboard/debt';
                             case 'pantry':
                               return '/dashboard/pantry';
+                            case 'chore':
+                              return '/dashboard/chores';
                             default:
                               return null;
                           }

@@ -18,6 +18,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ChoreAssignments } from '@/components/chore-assignments';
 import { ChoreLeaderboard } from '@/components/chore-leaderboard';
 import { RewardsShop } from '@/components/rewards-shop';
+import { HouseholdMemberBalances } from '@/components/household-member-balances';
+import { AvailableChores } from '@/components/available-chores';
 
 interface Chore {
   id: string;
@@ -41,6 +43,22 @@ export default function ChoresPage() {
   const [choreDialogOpen, setChoreDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [choreToDelete, setChoreToDelete] = useState<string | null>(null);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [selectedChoreForAssign, setSelectedChoreForAssign] = useState<Chore | null>(null);
+  const [assignForm, setAssignForm] = useState({
+    assigned_to: '',
+    due_date: new Date().toISOString().split('T')[0],
+  });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [choreToEdit, setChoreToEdit] = useState<Chore | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    points: 10,
+    frequency: 'once',
+    difficulty: 'medium',
+    category: 'other',
+  });
 
   const [members, setMembers] = useState<any[]>([]);
   const [choreForm, setChoreForm] = useState({
@@ -240,6 +258,102 @@ export default function ChoresPage() {
     return icons[category] || '📋';
   };
 
+  const handleOpenAssignDialog = (chore: Chore) => {
+    setSelectedChoreForAssign(chore);
+    setAssignForm({
+      assigned_to: '',
+      due_date: new Date().toISOString().split('T')[0],
+    });
+    setAssignDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = (chore: Chore) => {
+    setChoreToEdit(chore);
+    setEditForm({
+      name: chore.name,
+      description: chore.description || '',
+      points: chore.points,
+      frequency: chore.frequency,
+      difficulty: chore.difficulty,
+      category: chore.category,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateChore = async () => {
+    if (!choreToEdit) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('chores')
+        .update({
+          name: editForm.name,
+          description: editForm.description || null,
+          points: editForm.points,
+          frequency: editForm.frequency,
+          difficulty: editForm.difficulty,
+          category: editForm.category,
+        })
+        .eq('id', choreToEdit.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Chore updated successfully',
+      });
+
+      setEditDialogOpen(false);
+      loadChores();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update chore',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignChore = async () => {
+    if (!selectedChoreForAssign || !currentHousehold) return;
+
+    setLoading(true);
+    try {
+      const assignedTo = assignForm.assigned_to === 'open' ? null : assignForm.assigned_to || null;
+
+      const { error } = await supabase
+        .from('chore_assignments')
+        .insert({
+          household_id: currentHousehold.id,
+          chore_id: selectedChoreForAssign.id,
+          assigned_to: assignedTo,
+          due_date: assignForm.due_date,
+          completed: false,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: assignedTo ? 'Chore assigned successfully' : 'Chore posted as open for pickup',
+      });
+
+      setAssignDialogOpen(false);
+      setRefreshKey(prev => prev + 1);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to assign chore',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -256,27 +370,50 @@ export default function ChoresPage() {
 
         {currentHousehold && (
           <>
-            <ChoreLeaderboard
-              householdId={currentHousehold.id}
-              refreshKey={refreshKey}
-            />
+            {/* Row 1: Leaderboard | Assignments */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ChoreLeaderboard
+                householdId={currentHousehold.id}
+                refreshKey={refreshKey}
+              />
 
-            <ChoreAssignments
-              householdId={currentHousehold.id}
+              <ChoreAssignments
+                householdId={currentHousehold.id}
+                chores={chores}
+                refreshKey={refreshKey}
+                onDeleteChore={handleOpenDeleteDialog}
+                onCoinsUpdate={() => {
+                  loadChores();
+                  setRefreshKey(prev => prev + 1);
+                }}
+                onAssignmentChange={() => {
+                  setRefreshKey(prev => prev + 1);
+                }}
+              />
+            </div>
+
+            {/* Row 2: Household Members | Rewards Shop */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <HouseholdMemberBalances
+                householdId={currentHousehold.id}
+                refreshKey={refreshKey}
+              />
+
+              <RewardsShop
+                householdId={currentHousehold.id}
+                onCoinsUpdate={() => {
+                  setRefreshKey(prev => prev + 1);
+                }}
+              />
+            </div>
+
+            {/* Row 3: Available Chores (full width) */}
+            <AvailableChores
               chores={chores}
-              refreshKey={refreshKey}
+              onAssignChore={handleOpenAssignDialog}
+              onEditChore={handleOpenEditDialog}
               onDeleteChore={handleOpenDeleteDialog}
-              onCoinsUpdate={() => {
-                loadChores();
-                setRefreshKey(prev => prev + 1);
-              }}
-            />
-
-            <RewardsShop
-              householdId={currentHousehold.id}
-              onCoinsUpdate={() => {
-                setRefreshKey(prev => prev + 1);
-              }}
+              onAddChore={handleOpenChoreDialog}
             />
           </>
         )}
@@ -452,6 +589,160 @@ export default function ChoresPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Chore</DialogTitle>
+            <DialogDescription>
+              Assign {selectedChoreForAssign?.name} to a household member
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="assign-member">Assign To</Label>
+              <Select
+                value={assignForm.assigned_to}
+                onValueChange={(value) => setAssignForm({ ...assignForm, assigned_to: value })}
+              >
+                <SelectTrigger id="assign-member">
+                  <SelectValue placeholder="Select a member or leave open" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">
+                    Open for Pickup (Anyone can claim)
+                  </SelectItem>
+                  {members.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="assign-due-date">Due Date</Label>
+              <Input
+                id="assign-due-date"
+                type="date"
+                value={assignForm.due_date}
+                onChange={(e) => setAssignForm({ ...assignForm, due_date: e.target.value })}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAssignChore} disabled={loading}>
+                {loading ? 'Assigning...' : 'Assign'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Chore</DialogTitle>
+            <DialogDescription>Update the chore details</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Chore Name</Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                placeholder="e.g., Wash the dishes"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-description">Description (Optional)</Label>
+              <Textarea
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                placeholder="Add any details..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="edit-points">Coins</Label>
+                <Input
+                  id="edit-points"
+                  type="number"
+                  min={1}
+                  value={editForm.points}
+                  onChange={(e) => setEditForm({ ...editForm, points: parseInt(e.target.value) || 1 })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-difficulty">Difficulty</Label>
+                <Select
+                  value={editForm.difficulty}
+                  onValueChange={(value) => setEditForm({ ...editForm, difficulty: value })}
+                >
+                  <SelectTrigger id="edit-difficulty">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="edit-category">Category</Label>
+                <Select
+                  value={editForm.category}
+                  onValueChange={(value) => setEditForm({ ...editForm, category: value })}
+                >
+                  <SelectTrigger id="edit-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cleaning">🧹 Cleaning</SelectItem>
+                    <SelectItem value="dishes">🍽️ Dishes</SelectItem>
+                    <SelectItem value="laundry">🧺 Laundry</SelectItem>
+                    <SelectItem value="pets">🐾 Pets</SelectItem>
+                    <SelectItem value="yard">🌱 Yard</SelectItem>
+                    <SelectItem value="other">📋 Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="edit-frequency">Frequency</Label>
+                <Select
+                  value={editForm.frequency}
+                  onValueChange={(value) => setEditForm({ ...editForm, frequency: value })}
+                >
+                  <SelectTrigger id="edit-frequency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="once">Once</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateChore} disabled={loading}>
+                {loading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

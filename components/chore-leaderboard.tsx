@@ -12,6 +12,7 @@ interface MemberStats {
   current_coins: number;
   total_coins: number;
   completed_count: number;
+  uncompleted_count: number;
 }
 
 interface ChoreLeaderboardProps {
@@ -40,18 +41,28 @@ export function ChoreLeaderboard({ householdId, refreshKey }: ChoreLeaderboardPr
       if (membersError) throw membersError;
 
       const statsPromises = (members || []).map(async (member) => {
-        const { count, error: countError } = await supabase
-          .from('chore_assignments')
-          .select('*', { count: 'exact', head: true })
-          .eq('household_id', householdId)
-          .eq('assigned_to', member.id)
-          .eq('completed', true);
+        const [completedResult, uncompletedResult] = await Promise.all([
+          supabase
+            .from('chore_assignments')
+            .select('*', { count: 'exact', head: true })
+            .eq('household_id', householdId)
+            .eq('assigned_to', member.id)
+            .eq('completed', true),
+          supabase
+            .from('chore_assignments')
+            .select('*', { count: 'exact', head: true })
+            .eq('household_id', householdId)
+            .eq('assigned_to', member.id)
+            .eq('completed', false),
+        ]);
 
-        if (countError) throw countError;
+        if (completedResult.error) throw completedResult.error;
+        if (uncompletedResult.error) throw uncompletedResult.error;
 
         return {
           ...member,
-          completed_count: count || 0,
+          completed_count: completedResult.count || 0,
+          uncompleted_count: uncompletedResult.count || 0,
         };
       });
 
@@ -124,7 +135,11 @@ export function ChoreLeaderboard({ householdId, refreshKey }: ChoreLeaderboardPr
                     </div>
                     <div className="text-sm text-muted-foreground">
                       <span className="font-medium">{member.completed_count}</span>
-                      <span> chores</span>
+                      <span> completed</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      <span className="font-medium">{member.uncompleted_count}</span>
+                      <span> uncompleted</span>
                     </div>
                   </div>
                 </div>

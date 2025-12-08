@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useHousehold } from '@/lib/household-context';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, TrendingDown, DollarSign, CreditCard, Receipt, Home } from 'lucide-react';
+import { formatCurrency } from '@/lib/format';
 
 interface BudgetOverviewProps {
   className?: string;
@@ -206,7 +207,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
               <DollarSign className="h-4 w-4 text-emerald-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-600">${budgetData.totalIncome.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-emerald-600">{formatCurrency(budgetData.totalIncome)}</div>
               <p className="text-xs text-muted-foreground mt-1">per month</p>
             </CardContent>
           </Card>
@@ -217,7 +218,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
               <TrendingDown className="h-4 w-4 text-rose-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-rose-600">${budgetData.totalExpenses.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-rose-600">{formatCurrency(budgetData.totalExpenses)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Debts + Bills + Household
               </p>
@@ -235,7 +236,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
             </CardHeader>
             <CardContent>
               <div className={`text-2xl font-bold ${budgetData.netIncome >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                ${Math.abs(budgetData.netIncome).toFixed(2)}
+                {formatCurrency(Math.abs(budgetData.netIncome))}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {budgetData.netIncome >= 0 ? 'Surplus' : 'Deficit'}
@@ -266,7 +267,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                 <DollarSign className="h-5 w-5 text-emerald-600" />
                 Income
               </CardTitle>
-              <CardDescription>Total: ${budgetData.totalIncome.toFixed(2)}</CardDescription>
+              <CardDescription>Total: {formatCurrency(budgetData.totalIncome)}</CardDescription>
             </CardHeader>
             <CardContent>
               {budgetData.incomeItems.length === 0 ? (
@@ -279,7 +280,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-emerald-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-emerald-600">{formatCurrency(item.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -293,7 +294,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                 <CreditCard className="h-5 w-5 text-rose-600" />
                 Debts
               </CardTitle>
-              <CardDescription>Total: ${budgetData.totalDebts.toFixed(2)}</CardDescription>
+              <CardDescription>Total: {formatCurrency(budgetData.totalDebts)}</CardDescription>
             </CardHeader>
             <CardContent>
               {budgetData.debtItems.length === 0 ? (
@@ -306,7 +307,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-rose-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-rose-600">{formatCurrency(item.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -320,7 +321,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                 <Receipt className="h-5 w-5 text-amber-700" />
                 Bills
               </CardTitle>
-              <CardDescription>Total: ${budgetData.totalBills.toFixed(2)}</CardDescription>
+              <CardDescription>Total: {formatCurrency(budgetData.totalBills)}</CardDescription>
             </CardHeader>
             <CardContent>
               {budgetData.billItems.length === 0 ? (
@@ -333,7 +334,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-amber-700">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-amber-700">{formatCurrency(item.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -347,7 +348,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                 <Home className="h-5 w-5 text-blue-600" />
                 Household Expenses
               </CardTitle>
-              <CardDescription>Total: ${budgetData.totalHouseholdExpenses.toFixed(2)}</CardDescription>
+              <CardDescription>Total: {formatCurrency(budgetData.totalHouseholdExpenses)}</CardDescription>
             </CardHeader>
             <CardContent>
               {budgetData.householdItems.length === 0 ? (
@@ -360,7 +361,7 @@ export function BudgetOverviewWidget({ className }: BudgetOverviewProps) {
                         <span className="text-2xl">{item.icon}</span>
                         <span className="font-medium">{item.name}</span>
                       </div>
-                      <span className="font-bold text-blue-600">${item.amount.toFixed(2)}</span>
+                      <span className="font-bold text-blue-600">{formatCurrency(item.amount)}</span>
                     </div>
                   ))}
                 </div>

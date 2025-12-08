@@ -24,6 +24,7 @@ import { useAuth } from '@/lib/auth-context';
 import { SearchableCategorySelect } from '@/components/searchable-category-select';
 import { IconPicker } from '@/components/icon-picker';
 import { Budget503020 } from '@/components/budget-50-30-20';
+import { formatCurrency } from '@/lib/format';
 
 interface TransactionCategory {
   id: string;
@@ -622,7 +623,7 @@ export default function BudgetPage() {
                               incomeFormData.payment_frequency === 'biweekly' ? 2.17 :
                               incomeFormData.payment_frequency === 'semimonthly' ? 2 :
                               1
-                            )).toFixed(2)}
+                            ))}
                           </>
                         ) : (
                           'Enter amount to see monthly calculation'
@@ -661,7 +662,7 @@ export default function BudgetPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span>Total Monthly Income: ${totalIncome.toFixed(2)}</span>
+                  <span>Total Monthly Income: {formatCurrency(totalIncome)}</span>
                 </CardTitle>
                 <CardDescription>
                   Manage your income sources for budget tracking
@@ -689,7 +690,7 @@ export default function BudgetPage() {
                             <div>
                               <div className="font-semibold">{income.name}</div>
                               <div className="text-sm text-muted-foreground">
-                                ${income.amount.toFixed(2)} / {
+                                {formatCurrency(income.amount)} / {
                                   income.payment_frequency === 'weekly' ? 'week' :
                                   income.payment_frequency === 'biweekly' ? 'bi-weekly' :
                                   income.payment_frequency === 'semimonthly' ? 'semi-monthly' :
@@ -704,7 +705,7 @@ export default function BudgetPage() {
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">
-                            <div className="font-bold text-emerald-600">${income.monthly_amount.toFixed(2)}</div>
+                            <div className="font-bold text-emerald-600">{formatCurrency(income.monthly_amount)}</div>
                             <div className="text-xs text-muted-foreground">per month</div>
                           </div>
                           <div className="flex gap-2">
@@ -872,7 +873,7 @@ export default function BudgetPage() {
             <CardDescription>Sum of all budgeted expenses.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-primary">${totalBudget.toFixed(2)}</div>
+            <div className="text-3xl font-bold text-primary">{formatCurrency(totalBudget)}</div>
           </CardContent>
         </Card>
 
@@ -937,7 +938,7 @@ export default function BudgetPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="pl-6">
-                    <div className="text-2xl font-bold">${category.monthly_amount.toFixed(2)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(category.monthly_amount)}</div>
                     <p className="text-xs text-muted-foreground">per month</p>
                   </CardContent>
                 </Card>

@@ -7,11 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, DollarSign, Calendar, Receipt } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { ArrowLeft, DollarSign, Calendar, Receipt, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useHousehold } from '@/lib/household-context';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
+import { formatCurrency } from '@/lib/format';
 
 interface Bill {
   id: string;
@@ -51,6 +53,8 @@ export default function BillDetailPage() {
   const [bill, setBill] = useState<Bill | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
 
   const billId = params.id as string;
 
@@ -109,6 +113,73 @@ export default function BillDetailPage() {
     }
   };
 
+  const handleDeletePayment = async () => {
+    if (!deletingPayment) return;
+
+    try {
+      setLoading(true);
+
+      // If this payment has a transaction_id, check if the account still exists
+      if (deletingPayment.transaction_id && deletingPayment.transactions?.account_id) {
+        const accountId = deletingPayment.transactions.account_id;
+        
+        // Check if account exists in either accounts or plaid_accounts table
+        const { data: manualAccount } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('id', accountId)
+          .maybeSingle();
+          
+        const { data: plaidAccount } = await supabase
+          .from('plaid_accounts')
+          .select('id')
+          .eq('id', accountId)
+          .maybeSingle();
+        
+        // If account still exists, prevent deletion
+        if (manualAccount || plaidAccount) {
+          toast({
+            title: 'Cannot Delete',
+            description: 'This payment is linked to a transaction. Delete the transaction from the account page instead.',
+            variant: 'destructive',
+          });
+          setDeleteDialogOpen(false);
+          setDeletingPayment(null);
+          setLoading(false);
+          return;
+        }
+        
+        // If account doesn't exist, allow deleting just the payment record
+        // Transaction remains in database as historical record
+      }
+
+      const { error } = await supabase
+        .from('bill_payments')
+        .delete()
+        .eq('id', deletingPayment.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Payment deleted successfully',
+      });
+
+      setDeleteDialogOpen(false);
+      setDeletingPayment(null);
+      loadBillData();
+    } catch (error: any) {
+      console.error('Error deleting payment:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete payment',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -145,7 +216,7 @@ export default function BillDetailPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/budget')}>
+          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/accounts')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -166,7 +237,7 @@ export default function BillDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-primary">
-                ${bill.amount.toFixed(2)}
+                {formatCurrency(bill.amount)}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 {frequencyMap[bill.frequency]}
@@ -180,7 +251,7 @@ export default function BillDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-green-600">
-                ${totalPaid.toFixed(2)}
+                {formatCurrency(totalPaid)}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 {paymentCount} payment{paymentCount !== 1 ? 's' : ''}
@@ -194,7 +265,7 @@ export default function BillDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-blue-600">
-                ${averagePayment.toFixed(2)}
+                {formatCurrency(averagePayment)}
               </div>
             </CardContent>
           </Card>
@@ -258,6 +329,7 @@ export default function BillDetailPage() {
                       <TableHead>Source</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Notes</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -274,10 +346,23 @@ export default function BillDetailPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ${payment.amount.toFixed(2)}
+                          {formatCurrency(payment.amount)}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
                           {payment.notes || '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setDeletingPayment(payment);
+                              setDeleteDialogOpen(true);
+                            }}
+                            disabled={loading}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -288,6 +373,32 @@ export default function BillDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Payment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this payment? This action cannot be undone.
+              {deletingPayment?.transaction_id && (
+                <div className="mt-2 text-destructive font-medium">
+                  Note: This payment is linked to a transaction. Please delete the transaction from the account page instead.
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePayment}
+              disabled={loading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }
