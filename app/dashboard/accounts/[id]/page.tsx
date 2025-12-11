@@ -34,6 +34,8 @@ interface Account {
   color: string;
   plaid_item_id?: string;
   is_active?: boolean;
+  initial_balance?: number;
+  reconciled_balance?: number;
 }
 
 interface Transaction {
@@ -114,6 +116,8 @@ export default function AccountDetailPage() {
   const [filterUncleared, setFilterUncleared] = useState(false);
   const [newPayeeName, setNewPayeeName] = useState('');
   const [transferCategoryId, setTransferCategoryId] = useState<string>('');
+  const [editInitialBalanceOpen, setEditInitialBalanceOpen] = useState(false);
+  const [newInitialBalance, setNewInitialBalance] = useState('');
 
   const accountId = params.id as string;
   const isPlaidAccount = account?.plaid_item_id != null;
@@ -759,6 +763,42 @@ export default function AccountDetailPage() {
     }
   };
 
+  const handleUpdateInitialBalance = async () => {
+    if (!account || !accountId || !isPlaidAccount) return;
+
+    try {
+      setLoading(true);
+      const newBalance = parseFloat(newInitialBalance);
+      if (isNaN(newBalance)) {
+        throw new Error('Please enter a valid number');
+      }
+
+      // Only update initial_balance - working/cleared balances are calculated from transactions
+      const { error } = await supabase
+        .from('plaid_accounts')
+        .update({ initial_balance: newBalance })
+        .eq('id', accountId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Initial Balance Updated',
+        description: 'The initial balance has been updated. All balances will be recalculated.',
+      });
+
+      setEditInitialBalanceOpen(false);
+      await loadAccountData();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update initial balance',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleActive = async () => {
     if (!account || !accountId) return;
 
@@ -1018,20 +1058,29 @@ export default function AccountDetailPage() {
     ? transactions.filter(t => !t.is_cleared)
     : transactions;
 
-  const accountBalance = (account?.balance !== undefined && account?.balance !== null) 
-    ? account.balance 
-    : ((account as any)?.current_balance !== undefined && (account as any)?.current_balance !== null)
-      ? (account as any).current_balance
-      : 0;
+  // For Plaid accounts, use initial_balance as the starting point
+  // For manual accounts, use balance field
+  const initialBalance = isPlaidAccount 
+    ? (account?.initial_balance ?? 0)
+    : (account?.balance ?? 0);
   
-  const clearedBalance = accountBalance - transactions
-    .filter(t => !t.is_cleared)
+  // Working Balance = initial_balance + all transactions (checkbook model)
+  const workingBalance = initialBalance + transactions.reduce((sum, t) => sum + t.amount, 0);
+  
+  // Cleared Balance = initial_balance + only cleared transactions
+  const clearedBalance = initialBalance + transactions
+    .filter(t => t.is_cleared)
     .reduce((sum, t) => sum + t.amount, 0);
+  
+  // For backwards compatibility with existing code that uses accountBalance
+  const accountBalance = workingBalance;
 
-  const workingBalance = accountBalance;
-
+  // Running balance starts from initial_balance and adds transactions chronologically
   const runningBalance = [...filteredTransactions].reverse().reduce((acc, transaction, index) => {
-    const balance = index === 0 ? (accountBalance - filteredTransactions.reduce((sum, t) => sum + t.amount, 0) + transaction.amount) : acc[index - 1].balance + transaction.amount;
+    // Start from initial balance, then add each transaction
+    const balance = index === 0 
+      ? initialBalance + transaction.amount 
+      : acc[index - 1].balance + transaction.amount;
     acc.push({ ...transaction, balance });
     return acc;
   }, [] as any[]).reverse();
@@ -1059,6 +1108,25 @@ export default function AccountDetailPage() {
                 <span className="capitalize">{account.type}</span>
                 {account.account_number_last4 && <span> • ••••{account.account_number_last4}</span>}
               </p>
+              {isPlaidAccount && account.initial_balance !== undefined && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-sm text-muted-foreground">
+                    Initial Balance: {formatCurrency(account.initial_balance)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => {
+                      setNewInitialBalance(account.initial_balance?.toString() || '0');
+                      setEditInitialBalanceOpen(true);
+                    }}
+                  >
+                    <Edit2 className="h-3 w-3 mr-1" />
+                    Edit
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1822,6 +1890,42 @@ export default function AccountDetailPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={editInitialBalanceOpen} onOpenChange={setEditInitialBalanceOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Initial Balance</DialogTitle>
+              <DialogDescription className="text-destructive font-medium">
+                ⚠️ Warning: Changing the initial balance will alter all balance calculations for this account. 
+                Only change this if the balance was incorrect when the account was first linked.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="initial_balance">Initial Balance</Label>
+                <Input
+                  id="initial_balance"
+                  type="number"
+                  step="0.01"
+                  value={newInitialBalance}
+                  onChange={(e) => setNewInitialBalance(e.target.value)}
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is the balance when the account was first linked to Plaid.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditInitialBalanceOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateInitialBalance} disabled={loading}>
+                {loading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

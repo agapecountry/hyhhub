@@ -155,7 +155,7 @@ serve(async (req) => {
     // Load bills and debts for auto-matching
     const { data: bills } = await supabaseClient
       .from('bills')
-      .select('id, name, company, payee_id, amount, due_day, category_id, institution, merchant_name, matching_keywords')
+      .select('id, company, amount, due_date, category_id')
       .eq('household_id', plaidItem.household_id)
       .eq('is_active', true);
 
@@ -427,13 +427,14 @@ serve(async (req) => {
     let matchedCount = 0;
     try {
       console.log('Running auto-match for newly synced transactions...');
-      const { data: accounts } = await supabaseClient
-        .from('accounts')
+      // Use plaid_accounts table (not accounts)
+      const { data: plaidAccountsForMatch } = await supabaseClient
+        .from('plaid_accounts')
         .select('id')
         .eq('plaid_item_id', plaid_item_id);
       
-      if (accounts && accounts.length > 0) {
-        for (const account of accounts) {
+      if (plaidAccountsForMatch && plaidAccountsForMatch.length > 0) {
+        for (const account of plaidAccountsForMatch) {
           const { data: matchCount, error: matchError } = await supabaseClient
             .rpc('auto_match_new_transactions', {
               p_account_id: account.id
