@@ -634,6 +634,11 @@ export default function SubscriptionPage() {
         <div className="text-sm text-muted-foreground text-center">
           <p>All plans include calendar, meal planning, chores, and household management.</p>
           <p className="mt-2">Higher tiers unlock bank connectivity and advanced features.</p>
+          <p className="mt-4">
+            <a href="/terms" className="text-primary hover:underline">
+              Terms of Service & Cancellation Policy
+            </a>
+          </p>
         </div>
       </div>
       </div>

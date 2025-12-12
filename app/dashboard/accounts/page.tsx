@@ -802,7 +802,11 @@ export default function AccountsPage() {
                   </div>
                 </div>
                 {tier.name === 'free' && (
-                  <Button variant="outline" size="sm">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => router.push('/dashboard/subscription')}
+                  >
                     Upgrade for Bank Linking
                   </Button>
                 )}
