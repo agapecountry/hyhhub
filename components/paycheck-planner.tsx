@@ -184,8 +184,8 @@ export function PaycheckPlanner() {
     if (!currentHousehold) return;
 
     try {
-      // Load scheduled payments from the last 2 months
-      const startDate = addMonths(new Date(), -2);
+      // Load scheduled payments from the last 6 months (matches retention policy)
+      const startDate = addMonths(new Date(), -6);
       const { data, error } = await supabase
         .from('paycheck_scheduled_payments')
         .select('*')
@@ -440,13 +440,66 @@ export function PaycheckPlanner() {
       }
 
       // Also update the stored scheduled payments table
-      await supabase
+      // Use payment_id and due_date to find the correct record
+      const { data: scheduledPayment } = await supabase
         .from('paycheck_scheduled_payments')
-        .update({ is_paid: newPaidStatus })
+        .select('id, paycheck_id, paycheck_date, payment_name, amount, is_split, split_part')
         .eq('household_id', currentHousehold.id)
         .eq('payment_type', paymentType)
         .eq('payment_id', paymentId)
-        .eq('due_date', dueDateStr);
+        .eq('due_date', dueDateStr)
+        .maybeSingle();
+
+      if (scheduledPayment) {
+        // Update existing scheduled payment
+        await supabase
+          .from('paycheck_scheduled_payments')
+          .update({ is_paid: newPaidStatus })
+          .eq('id', scheduledPayment.id);
+      } else if (newPaidStatus) {
+        // Create a new scheduled payment record if marking as paid and none exists
+        // Find the payment details from the current schedule
+        const paymentInSchedule = schedule
+          .flatMap(p => p.payments.map(pay => ({ ...pay, paycheckId: p.paycheckId, paycheckDate: p.paycheckDate })))
+          .find(p => p.type === paymentType && p.id === paymentId && format(p.due_date, 'yyyy-MM-dd') === dueDateStr);
+
+        if (paymentInSchedule) {
+          const { error: insertError } = await supabase
+            .from('paycheck_scheduled_payments')
+            .insert({
+              household_id: currentHousehold.id,
+              paycheck_id: paymentInSchedule.paycheckId,
+              paycheck_date: format(paymentInSchedule.paycheckDate, 'yyyy-MM-dd'),
+              payment_type: paymentType,
+              payment_id: paymentId,
+              payment_name: paymentInSchedule.name,
+              amount: paymentInSchedule.amount,
+              due_date: dueDateStr,
+              is_paid: true,
+              is_split: paymentInSchedule.isSplit || false,
+              split_part: paymentInSchedule.splitPart || null,
+            });
+
+          if (insertError) {
+            console.error('Error creating scheduled payment record:', insertError);
+          } else {
+            // Add to local state
+            setStoredScheduledPayments(prev => [...prev, {
+              id: '', // Will be set by DB
+              paycheck_id: paymentInSchedule.paycheckId,
+              paycheck_date: format(paymentInSchedule.paycheckDate, 'yyyy-MM-dd'),
+              payment_type: paymentType as 'bill' | 'debt' | 'extra-debt' | 'budget',
+              payment_id: paymentId,
+              payment_name: paymentInSchedule.name,
+              amount: paymentInSchedule.amount,
+              due_date: dueDateStr,
+              is_paid: true,
+              is_split: paymentInSchedule.isSplit || false,
+              split_part: paymentInSchedule.splitPart || null,
+            }]);
+          }
+        }
+      }
 
       // Update local state
       const updatedMap = new Map(manualPayments);
@@ -592,6 +645,8 @@ export function PaycheckPlanner() {
     if (!currentHousehold) return;
 
     try {
+      const newPaymentsToAdd: StoredScheduledPayment[] = [];
+      
       for (const period of scheduledPeriods) {
         const paycheckDateStr = format(period.paycheckDate, 'yyyy-MM-dd');
         
@@ -616,14 +671,37 @@ export function PaycheckPlanner() {
             split_part: payment.splitPart || null,
           }));
 
-          const { error } = await supabase
+          const { data, error } = await supabase
             .from('paycheck_scheduled_payments')
-            .insert(paymentsToInsert);
+            .insert(paymentsToInsert)
+            .select();
 
           if (error) {
             console.error('Error saving scheduled payments:', error);
+          } else if (data) {
+            // Add to local tracking for this run
+            data.forEach((sp: any) => {
+              newPaymentsToAdd.push({
+                id: sp.id,
+                paycheck_id: sp.paycheck_id,
+                paycheck_date: sp.paycheck_date,
+                payment_type: sp.payment_type,
+                payment_id: sp.payment_id,
+                payment_name: sp.payment_name,
+                amount: sp.amount,
+                due_date: sp.due_date,
+                is_paid: sp.is_paid,
+                is_split: sp.is_split,
+                split_part: sp.split_part,
+              });
+            });
           }
         }
+      }
+      
+      // Update local state with newly saved payments (without triggering re-render loop)
+      if (newPaymentsToAdd.length > 0) {
+        setStoredScheduledPayments(prev => [...prev, ...newPaymentsToAdd]);
       }
     } catch (error) {
       console.error('Error in saveNewScheduledPayments:', error);
@@ -635,8 +713,8 @@ export function PaycheckPlanner() {
 
     const endDate = addMonths(new Date(), 3);
     const today = startOfDay(new Date());
-    // Look back 2 months to include past paychecks that may have unpaid items
-    const startDate = addMonths(today, -2);
+    // Look back 6 months to match retention policy and include past paychecks
+    const startDate = addMonths(today, -6);
     const allPaycheckDates: Array<{ date: Date; name: string; id: string; amount: number }> = [];
 
     paychecks.forEach(paycheck => {
@@ -742,13 +820,14 @@ export function PaycheckPlanner() {
       extraPayment
     );
 
-    // Save newly scheduled payments for future paychecks that don't have stored data yet
+    // Save newly scheduled payments for ALL paychecks that don't have stored data yet
+    // This includes both future paychecks and any active paychecks that haven't been saved
     await saveNewScheduledPayments(futureSchedule);
 
     // Combine past periods (with stored payments) with future scheduled periods
     const generatedSchedule = [...pastPaycheckPeriods, ...futureSchedule];
 
-    // Load transactions to mark paid status (look back 2 months to match schedule lookback)
+    // Load transactions to mark paid status (look back 6 months to match schedule lookback)
     try {
       const { data: transactions, error: transError } = await supabase
         .from('transactions')
@@ -761,16 +840,10 @@ export function PaycheckPlanner() {
         console.error('Error fetching transactions:', transError);
       }
 
-      console.log('Loaded transactions for paycheck planner:', transactions?.length || 0);
-      if (transactions && transactions.length > 0) {
-        console.log('Sample transaction:', transactions[0]);
-      }
-
-      console.log('Generated schedule periods:', generatedSchedule.length);
-      const totalPayments = generatedSchedule.reduce((sum, p) => sum + p.payments.length, 0);
-      console.log('Total payments in schedule:', totalPayments);
-
       // Mark payments as paid based on transactions or manual status
+      // Only check transaction matching for payments due within the next 60 days (optimization)
+      const sixtyDaysFromNow = addDays(today, 60);
+      
       generatedSchedule.forEach(period => {
         period.payments.forEach(payment => {
           // Create key with due date to uniquely identify this payment instance
@@ -780,6 +853,11 @@ export function PaycheckPlanner() {
 
           if (manualStatus?.isPaid) {
             payment.isPaid = true;
+            return;
+          }
+
+          // Skip transaction matching for payments more than 60 days out
+          if (isAfter(payment.due_date, sixtyDaysFromNow)) {
             return;
           }
 
@@ -804,7 +882,6 @@ export function PaycheckPlanner() {
           });
 
           if (relevantTransactions.length > 0) {
-            console.log(`Found ${relevantTransactions.length} transactions for ${payment.type} ${payment.id}, due ${dueDateStr}`);
             // Find the transaction closest to this payment's due date
             const closestTransaction = relevantTransactions.reduce((closest, t) => {
               const tDate = parseISO(t.date);
@@ -817,14 +894,9 @@ export function PaycheckPlanner() {
             const closestDate = parseISO(closestTransaction.date);
             const daysDiff = Math.abs(differenceInDays(closestDate, payment.due_date));
 
-            console.log(`  Closest transaction: ${closestTransaction.date}, ${daysDiff} days from due date`);
-
             // Only mark as paid if transaction is within 7 days of due date
             if (daysDiff <= 7) {
-              console.log(`  ✓ Marking as paid (within 7 days)`);
               payment.isPaid = true;
-            } else {
-              console.log(`  ✗ Not marking as paid (${daysDiff} days away)`);
             }
           }
         });

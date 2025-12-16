@@ -58,6 +58,11 @@ interface Payment {
   notes: string | null;
 }
 
+interface DebtPrincipalPaid {
+  debt_id: string;
+  total_principal_paid: number;
+}
+
 export default function DebtPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -66,6 +71,7 @@ export default function DebtPage() {
   const [loading, setLoading] = useState(false);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [debtPrincipalPaid, setDebtPrincipalPaid] = useState<Map<string, number>>(new Map());
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
@@ -80,6 +86,7 @@ export default function DebtPage() {
       loadDebts();
       loadPayments();
       loadStrategy();
+      loadDebtPrincipalPaid();
     }
   }, [currentHousehold]);
 
@@ -136,6 +143,37 @@ export default function DebtPage() {
     } catch (error: any) {
       console.error('Error loading payments:', error);
     }
+  };
+
+  const loadDebtPrincipalPaid = async () => {
+    if (!currentHousehold) return;
+
+    try {
+      // Load all payments and sum principal_paid per debt
+      const { data, error } = await supabase
+        .from('debt_payments')
+        .select('debt_id, principal_paid')
+        .eq('household_id', currentHousehold.id);
+
+      if (error) throw error;
+
+      // Sum principal paid per debt
+      const principalMap = new Map<string, number>();
+      (data || []).forEach(payment => {
+        const current = principalMap.get(payment.debt_id) || 0;
+        principalMap.set(payment.debt_id, current + payment.principal_paid);
+      });
+
+      setDebtPrincipalPaid(principalMap);
+    } catch (error: any) {
+      console.error('Error loading debt principal paid:', error);
+    }
+  };
+
+  // Helper function to get remaining balance for a debt
+  const getRemainingBalance = (debt: Debt): number => {
+    const principalPaid = debtPrincipalPaid.get(debt.id) || 0;
+    return Math.max(0, debt.current_balance - principalPaid);
   };
 
   const handleDeleteDebt = async () => {
@@ -260,14 +298,14 @@ export default function DebtPage() {
   };
 
   const calculatePayoffMonths = (debt: Debt) => {
-    if (debt.current_balance === 0) return 0;
+    const balance = getRemainingBalance(debt);
+    if (balance === 0) return 0;
     if (debt.interest_rate === 0) {
-      return Math.ceil(debt.current_balance / debt.minimum_payment);
+      return Math.ceil(balance / debt.minimum_payment);
     }
 
     const monthlyRate = debt.interest_rate / 100 / 12;
     const payment = debt.minimum_payment;
-    const balance = debt.current_balance;
 
     if (payment <= balance * monthlyRate) {
       return 999;
@@ -283,12 +321,18 @@ export default function DebtPage() {
   const activeDebts = debts.filter(d => d.is_active);
   const paidOffDebts = debts.filter(d => !d.is_active);
 
-  const totalDebt = activeDebts.reduce((sum, d) => sum + d.current_balance, 0);
+  const totalDebt = activeDebts.reduce((sum, d) => sum + getRemainingBalance(d), 0);
   const totalMonthlyPayment = activeDebts.reduce((sum, d) => sum + d.minimum_payment, 0);
-  const totalOriginal = activeDebts.reduce((sum, d) => sum + d.original_balance, 0);
+  const totalStartingBalance = activeDebts.reduce((sum, d) => sum + d.current_balance, 0);
 
   // Filter debts to include only those not excluded from payoff plan
-  const includedDebts = activeDebts.filter(d => !d.exclude_from_payoff);
+  // Map debts to use remaining balance for calculations
+  const includedDebts = activeDebts
+    .filter(d => !d.exclude_from_payoff)
+    .map(d => ({
+      ...d,
+      current_balance: getRemainingBalance(d), // Use remaining balance for strategy calculations
+    }));
 
   const avalancheSchedules = calculateAvalancheStrategy(includedDebts, extraPayment);
   const snowballSchedules = calculateSnowballStrategy(includedDebts, extraPayment);
@@ -345,9 +389,9 @@ export default function DebtPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(totalDebt)}</div>
-              {totalOriginal > 0 && (
+              {totalStartingBalance > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  {((totalDebt / totalOriginal) * 100).toFixed(1)}% remaining
+                  {((totalDebt / totalStartingBalance) * 100).toFixed(1)}% remaining
                 </p>
               )}
             </CardContent>
@@ -545,9 +589,9 @@ export default function DebtPage() {
               {(() => {
                 const sortedDebts = chosenStrategy === 'avalanche'
                   ? [...includedDebts].sort((a, b) => b.interest_rate - a.interest_rate)
-                  : [...includedDebts].sort((a, b) => a.current_balance - b.current_balance);
+                  : [...includedDebts].sort((a, b) => getRemainingBalance(a) - getRemainingBalance(b));
 
-                const focusDebt = sortedDebts.find(d => d.current_balance > 0);
+                const focusDebt = sortedDebts.find(d => getRemainingBalance(d) > 0);
 
                 return (
                   <div className="p-4 bg-primary/10 border-2 border-primary rounded-lg">
@@ -561,7 +605,7 @@ export default function DebtPage() {
                         <p className="text-sm text-muted-foreground">
                           {chosenStrategy === 'avalanche'
                             ? `This debt has the highest interest rate (${focusDebt?.interest_rate.toFixed(2)}%), so paying it off first saves the most money.`
-                            : `This debt has the smallest balance (${formatCurrency(focusDebt?.current_balance || 0)}), so paying it off first provides a quick win.`}
+                            : `This debt has the smallest balance (${formatCurrency(focusDebt ? getRemainingBalance(focusDebt) : 0)}), so paying it off first provides a quick win.`}
                         </p>
                       </div>
                     </div>
@@ -611,9 +655,9 @@ export default function DebtPage() {
                 const schedules = chosenStrategy === 'avalanche' ? avalancheSchedules : snowballSchedules;
                 const sortedDebts = chosenStrategy === 'avalanche'
                   ? [...includedDebts].sort((a, b) => b.interest_rate - a.interest_rate)
-                  : [...includedDebts].sort((a, b) => a.current_balance - b.current_balance);
+                  : [...includedDebts].sort((a, b) => getRemainingBalance(a) - getRemainingBalance(b));
 
-                const focusDebt = sortedDebts.find(d => d.current_balance > 0);
+                const focusDebt = sortedDebts.find(d => getRemainingBalance(d) > 0);
 
                 return (
                   <>
@@ -628,7 +672,7 @@ export default function DebtPage() {
                           <p className="text-sm text-muted-foreground mb-3">
                             {chosenStrategy === 'avalanche'
                               ? `This debt has the highest interest rate (${focusDebt?.interest_rate.toFixed(3)}%), so paying it off first saves the most money.`
-                              : `This debt has the smallest balance (${formatCurrency(focusDebt?.current_balance || 0)}), so paying it off first provides a quick win.`}
+                              : `This debt has the smallest balance (${formatCurrency(focusDebt ? getRemainingBalance(focusDebt) : 0)}), so paying it off first provides a quick win.`}
                           </p>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
@@ -693,13 +737,15 @@ export default function DebtPage() {
               </Card>
             ) : (
               activeDebts.map((debt) => {
-                const progressPercent = ((debt.original_balance - debt.current_balance) / debt.original_balance) * 100;
+                const remainingBalance = getRemainingBalance(debt);
+                // Progress percent: how much of the ORIGINAL loan has been paid off
+                const progressPercent = ((debt.original_balance - remainingBalance) / debt.original_balance) * 100;
                 const payoffMonths = calculatePayoffMonths(debt);
 
                 const sortedDebts = chosenStrategy === 'avalanche'
                   ? [...includedDebts].sort((a, b) => b.interest_rate - a.interest_rate)
-                  : [...includedDebts].sort((a, b) => a.current_balance - b.current_balance);
-                const focusDebt = sortedDebts.find(d => d.current_balance > 0);
+                  : [...includedDebts].sort((a, b) => getRemainingBalance(a) - getRemainingBalance(b));
+                const focusDebt = sortedDebts.find(d => getRemainingBalance(d) > 0);
                 const isFocusDebt = chosenStrategy && focusDebt?.id === debt.id && hasFeature('personalized_debt_plan') && !debt.exclude_from_payoff;
                 const recommendedPayment = isFocusDebt ? debt.minimum_payment + extraPayment : debt.minimum_payment;
 
@@ -780,7 +826,7 @@ export default function DebtPage() {
                         <div className="flex justify-between text-sm mb-2">
                           <span className="text-muted-foreground">Balance</span>
                           <span className="font-semibold">
-                            {formatCurrency(debt.current_balance)} / {formatCurrency(debt.original_balance)}
+                            {formatCurrency(remainingBalance)} / {formatCurrency(debt.original_balance)}
                           </span>
                         </div>
                         <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">

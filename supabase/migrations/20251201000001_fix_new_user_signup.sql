@@ -93,14 +93,14 @@ DROP POLICY IF EXISTS "Users can add self as member during signup" ON public.hou
 CREATE POLICY "Users can add self as member during signup"
   ON public.household_members
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = (SELECT auth.uid()));
 
 -- User settings: Allow creating own settings (policy should already exist, but ensure it)
 DROP POLICY IF EXISTS "Users can create own settings during signup" ON public.user_settings;
 CREATE POLICY "Users can create own settings during signup"
   ON public.user_settings
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = (SELECT auth.uid()));
 
 COMMENT ON FUNCTION public.handle_new_user IS 
   'Creates user record, default household, and preferences when a new user signs up via auth.users';

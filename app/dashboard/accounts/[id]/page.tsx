@@ -338,26 +338,29 @@ export default function AccountDetailPage() {
 
     setLoading(true);
     try {
-      // Try to load from manual accounts first
+      // Try to load from manual accounts first (use maybeSingle to avoid 406 error)
       let { data: accountData, error: accountError } = await supabase
         .from('accounts')
         .select('*')
         .eq('id', accountId)
         .eq('household_id', currentHousehold.id)
-        .single();
+        .maybeSingle();
 
-      // If not found in manual accounts or any error, try plaid_accounts
-      if (accountError || !accountData) {
+      // If not found in manual accounts, try plaid_accounts
+      if (!accountData) {
         const { data: plaidData, error: plaidError } = await supabase
           .from('plaid_accounts')
           .select('*')
           .eq('id', accountId)
           .eq('household_id', currentHousehold.id)
-          .single();
+          .maybeSingle();
 
         if (plaidError) {
-          // If both queries fail, show the original error
-          throw accountError || plaidError;
+          throw plaidError;
+        }
+        
+        if (!plaidData) {
+          throw new Error('Account not found');
         }
         
         // Map plaid_accounts fields to match Account interface
@@ -541,32 +544,32 @@ export default function AccountDetailPage() {
 
         if (destError) throw destError;
 
-        // Update destination account balance
-        const { data: destAccount, error: destAccountError } = await supabase
+        // Update destination account balance - try manual accounts first
+        const { data: destAccount } = await supabase
           .from('accounts')
           .select('balance')
           .eq('id', selectedPayee.account_id)
-          .single();
+          .maybeSingle();
 
-        if (!destAccountError && destAccount) {
+        if (destAccount) {
           await supabase
             .from('accounts')
             .update({ balance: destAccount.balance + destinationAmount })
             .eq('id', selectedPayee.account_id);
-        }
-
-        // Also update Plaid account balances for transfers (checkbook model)
-        const { data: destPlaidAccount, error: destPlaidError } = await supabase
-          .from('plaid_accounts')
-          .select('current_balance')
-          .eq('id', selectedPayee.account_id)
-          .single();
-
-        if (!destPlaidError && destPlaidAccount) {
-          await supabase
+        } else {
+          // Try Plaid accounts if not found in manual accounts
+          const { data: destPlaidAccount } = await supabase
             .from('plaid_accounts')
-            .update({ current_balance: destPlaidAccount.current_balance + destinationAmount })
-            .eq('id', selectedPayee.account_id);
+            .select('current_balance')
+            .eq('id', selectedPayee.account_id)
+            .maybeSingle();
+
+          if (destPlaidAccount) {
+            await supabase
+              .from('plaid_accounts')
+              .update({ current_balance: destPlaidAccount.current_balance + destinationAmount })
+              .eq('id', selectedPayee.account_id);
+          }
         }
       }
 

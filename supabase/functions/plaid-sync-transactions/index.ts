@@ -104,26 +104,49 @@ serve(async (req) => {
       console.log('Incremental sync using cursor...');
       let hasMore = true;
 
-      while (hasMore) {
-        const syncResponse = await plaidClient.transactionsSync({
-          access_token: plaidItem.access_token,
-          cursor: cursor,
-        });
+      try {
+        while (hasMore) {
+          const syncResponse = await plaidClient.transactionsSync({
+            access_token: plaidItem.access_token,
+            cursor: cursor,
+          });
 
-        const data = syncResponse.data;
-        
-        addedTransactions.push(...data.added);
-        modifiedTransactions.push(...data.modified);
-        removedTransactionIds.push(...data.removed.map((r: any) => r.transaction_id));
-        
-        hasMore = data.has_more;
-        cursor = data.next_cursor;
-        
-        console.log(`Sync batch: ${data.added.length} added, ${data.modified.length} modified, ${data.removed.length} removed`);
+          const data = syncResponse.data;
+          
+          addedTransactions.push(...data.added);
+          modifiedTransactions.push(...data.modified);
+          removedTransactionIds.push(...data.removed.map((r: any) => r.transaction_id));
+          
+          hasMore = data.has_more;
+          cursor = data.next_cursor;
+          
+          console.log(`Sync batch: ${data.added.length} added, ${data.modified.length} modified, ${data.removed.length} removed`);
+        }
+
+        console.log(`Total from sync: ${addedTransactions.length} added, ${modifiedTransactions.length} modified, ${removedTransactionIds.length} removed`);
+        transactions = [...addedTransactions, ...modifiedTransactions];
+      } catch (syncError: any) {
+        // If cursor is invalid (400 error), log and continue without resetting
+        // This preserves existing data and just skips this sync
+        if (syncError?.response?.status === 400) {
+          console.error('Invalid cursor - skipping sync to preserve existing data. Cursor may need manual reset.');
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Sync cursor is invalid. Please contact support to safely reset the sync state.',
+              preservedData: true,
+            }),
+            {
+              status: 200, // Return 200 so it doesn't show as error, but with success: false
+              headers: {
+                ...corsHeaders,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+        }
+        throw syncError;
       }
-
-      console.log(`Total from sync: ${addedTransactions.length} added, ${modifiedTransactions.length} modified, ${removedTransactionIds.length} removed`);
-      transactions = [...addedTransactions, ...modifiedTransactions];
     }
 
     // Get all plaid_accounts for this item
@@ -217,7 +240,7 @@ serve(async (req) => {
           }
           
           const amountMatch = Math.abs(txAmount - bill.amount) < 1.0; // Within $1
-          const dayDiff = Math.abs(txDate.getDate() - bill.due_day);
+          const dayDiff = Math.abs(txDate.getDate() - (bill.due_date || 0));
           const dateMatch = dayDiff <= 3; // Within 3 days of due date
 
           // High confidence: good name match + amount + date, or keyword match + amount + date
@@ -379,19 +402,31 @@ serve(async (req) => {
 
     let insertedCount = 0;
     if (transactionsToInsert.length > 0) {
-      console.log(`Upserting ${transactionsToInsert.length} transactions (excluding user-modified)...`);
-      
-      const { error: insertError } = await supabaseClient
+      // Get existing transaction IDs to avoid overwriting reconciled data
+      const txIds = transactionsToInsert.map(t => t.transaction_id);
+      const { data: existingTx } = await supabaseClient
         .from('plaid_transactions')
-        .upsert(transactionsToInsert, {
-          onConflict: 'transaction_id',
-        });
+        .select('transaction_id')
+        .in('transaction_id', txIds);
+      
+      const existingIds = new Set(existingTx?.map(t => t.transaction_id) || []);
+      
+      // Only insert NEW transactions, never update existing ones
+      const newTransactions = transactionsToInsert.filter(t => !existingIds.has(t.transaction_id));
+      
+      console.log(`Found ${existingIds.size} existing transactions, inserting ${newTransactions.length} new transactions only...`);
+      
+      if (newTransactions.length > 0) {
+        const { error: insertError } = await supabaseClient
+          .from('plaid_transactions')
+          .insert(newTransactions);
 
-      if (insertError) {
-        console.error('Error inserting transactions:', insertError);
-        throw insertError;
+        if (insertError) {
+          console.error('Error inserting transactions:', insertError);
+          throw insertError;
+        }
+        insertedCount = newTransactions.length;
       }
-      insertedCount = transactionsToInsert.length;
     }
 
     // Handle removed transactions (delete only if not user-modified)

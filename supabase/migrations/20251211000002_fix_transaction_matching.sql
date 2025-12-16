@@ -84,7 +84,8 @@ BEGIN
     abs(pt.amount + mt.amount)
   LIMIT 10;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- Function to find potential manual matches for a Plaid transaction
 CREATE OR REPLACE FUNCTION find_manual_matches_for_plaid(
@@ -135,7 +136,8 @@ BEGIN
     abs(t.amount + ptx.amount)
   LIMIT 10;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- Function to match a manual transaction with a Plaid transaction
 CREATE OR REPLACE FUNCTION match_manual_to_plaid(
@@ -163,7 +165,8 @@ BEGIN
   
   RETURN true;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- Function to unmatch a manual transaction from its Plaid match
 CREATE OR REPLACE FUNCTION unmatch_manual_from_plaid(p_manual_transaction_id uuid)
@@ -196,7 +199,8 @@ BEGIN
   
   RETURN true;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- Rewrite auto_match_new_transactions to work across tables
 CREATE OR REPLACE FUNCTION auto_match_new_transactions(p_account_id uuid)
@@ -237,7 +241,8 @@ BEGIN
   
   RETURN v_match_count;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- Add comments
 COMMENT ON COLUMN transactions.matched_plaid_transaction_id IS 

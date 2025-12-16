@@ -52,17 +52,34 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
 
   const loadAccounts = async () => {
     try {
-      // Load all accounts for this household
-      const { data: accountsData, error } = await supabase
+      // Load manual accounts
+      const { data: manualAccounts, error: manualError } = await supabase
         .from('accounts')
         .select('id, name, balance, plaid_item_id')
         .eq('household_id', householdId)
         .order('name');
 
-      if (error) throw error;
+      // Load Plaid accounts
+      const { data: plaidAccounts, error: plaidError } = await supabase
+        .from('plaid_accounts')
+        .select('id, name, current_balance, plaid_item_id')
+        .eq('household_id', householdId)
+        .eq('is_active', true)
+        .order('name');
 
-      setAccounts(accountsData || []);
-      const current = accountsData?.find(a => a.id === currentAccountId);
+      // Combine both, mapping plaid_accounts to match Account interface
+      const allAccounts: Account[] = [
+        ...(manualAccounts || []),
+        ...(plaidAccounts || []).map(pa => ({
+          id: pa.id,
+          name: pa.name,
+          balance: pa.current_balance,
+          plaid_item_id: pa.plaid_item_id,
+        })),
+      ];
+
+      setAccounts(allAccounts);
+      const current = allAccounts.find(a => a.id === currentAccountId);
       setCurrentAccount(current || null);
     } catch (error: any) {
       console.error('Error loading accounts:', error);
@@ -152,19 +169,37 @@ export function TransferDialog({ open, onOpenChange, currentAccountId, household
 
       if (depositError) throw depositError;
 
-      // Update balances
+      // Update balances - determine which table each account is in
       const newFromBalance = currentAccount.balance - amount;
       const newToBalance = toAccount.balance + amount;
 
-      await supabase
-        .from('accounts')
-        .update({ balance: newFromBalance })
-        .eq('id', currentAccountId);
+      // Update source account balance
+      const fromIsPlaid = !!currentAccount.plaid_item_id;
+      if (fromIsPlaid) {
+        await supabase
+          .from('plaid_accounts')
+          .update({ current_balance: newFromBalance })
+          .eq('id', currentAccountId);
+      } else {
+        await supabase
+          .from('accounts')
+          .update({ balance: newFromBalance })
+          .eq('id', currentAccountId);
+      }
 
-      await supabase
-        .from('accounts')
-        .update({ balance: newToBalance })
-        .eq('id', formData.toAccountId);
+      // Update destination account balance
+      const toIsPlaid = !!toAccount.plaid_item_id;
+      if (toIsPlaid) {
+        await supabase
+          .from('plaid_accounts')
+          .update({ current_balance: newToBalance })
+          .eq('id', formData.toAccountId);
+      } else {
+        await supabase
+          .from('accounts')
+          .update({ balance: newToBalance })
+          .eq('id', formData.toAccountId);
+      }
 
       toast({
         title: 'Success',

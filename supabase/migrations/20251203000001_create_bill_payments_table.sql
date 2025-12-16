@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS bill_payments (
   created_at timestamptz DEFAULT now() NOT NULL
 );
 
--- Create indexes
+-- Create indexes (drop duplicate first if exists)
+DROP INDEX IF EXISTS idx_bill_payments_bill_id;
 CREATE INDEX IF NOT EXISTS idx_bill_payments_bill ON bill_payments(bill_id);
 CREATE INDEX IF NOT EXISTS idx_bill_payments_household ON bill_payments(household_id);
 CREATE INDEX IF NOT EXISTS idx_bill_payments_transaction ON bill_payments(transaction_id);

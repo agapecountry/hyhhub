@@ -76,37 +76,6 @@ export default function DebtDetailPage() {
     }
   }, [currentHousehold, debtId]);
 
-  const updateDebtBalance = async () => {
-    if (!debtId) return;
-
-    try {
-      // Get all payments for this debt, sorted by date descending to get most recent first
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('debt_payments')
-        .select('remaining_balance, payment_date')
-        .eq('debt_id', debtId)
-        .order('payment_date', { ascending: false })
-        .limit(1);
-
-      if (paymentsError) throw paymentsError;
-
-      // Get the most recent payment's remaining_balance
-      const mostRecentPayment = paymentsData && paymentsData.length > 0 ? paymentsData[0] : null;
-      
-      if (mostRecentPayment) {
-        // Update the debt's current balance to the most recent payment's remaining balance
-        const { error: updateError } = await supabase
-          .from('debts')
-          .update({ current_balance: mostRecentPayment.remaining_balance })
-          .eq('id', debtId);
-
-        if (updateError) throw updateError;
-      }
-    } catch (error: any) {
-      console.error('Error updating debt balance:', error);
-    }
-  };
-
   const loadDebtData = async () => {
     if (!currentHousehold || !debtId) return;
 
@@ -216,9 +185,6 @@ export default function DebtDetailPage() {
 
       if (error) throw error;
 
-      // Update the debt's current balance
-      await updateDebtBalance();
-
       toast({
         title: 'Success',
         description: 'Payment updated successfully',
@@ -286,9 +252,6 @@ export default function DebtDetailPage() {
 
       if (error) throw error;
 
-      // Update the debt's current balance
-      await updateDebtBalance();
-
       toast({
         title: 'Success',
         description: 'Payment deleted successfully',
@@ -333,10 +296,25 @@ export default function DebtDetailPage() {
   const totalInterestPaid = payments.reduce((sum, p) => sum + p.interest_paid, 0);
   const totalPaid = totalPrincipalPaid + totalInterestPaid;
   
-  // Use the most recent payment's remaining_balance as current balance, or debt.current_balance if no payments
-  const currentBalance = payments.length > 0 ? payments[0].remaining_balance : debt.current_balance;
+  // Calculate remaining balance: current_balance (starting point) minus all principal paid
+  // current_balance is the user-editable starting point, not auto-updated
+  const remainingBalance = Math.max(0, debt.current_balance - totalPrincipalPaid);
   
-  const progressPercent = ((debt.original_balance - currentBalance) / debt.original_balance) * 100;
+  // Progress percent: how much of the ORIGINAL loan has been paid off
+  const progressPercent = ((debt.original_balance - remainingBalance) / debt.original_balance) * 100;
+
+  // Calculate "Balance After" for each payment
+  // Payments are sorted by date descending, so we calculate cumulative principal from the end
+  const paymentsWithBalanceAfter = payments.map((payment, index) => {
+    // Sum principal paid from this payment to the most recent (index 0)
+    const cumulativePrincipal = payments
+      .slice(0, index + 1)
+      .reduce((sum, p) => sum + p.principal_paid, 0);
+    return {
+      ...payment,
+      calculatedBalanceAfter: Math.max(0, debt.current_balance - cumulativePrincipal),
+    };
+  });
 
   return (
     <DashboardLayout>
@@ -356,11 +334,11 @@ export default function DebtDetailPage() {
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
+              <CardTitle className="text-sm font-medium">Remaining Balance</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-red-600">
-                {formatCurrency(currentBalance)}
+                {formatCurrency(remainingBalance)}
               </div>
             </CardContent>
           </Card>
@@ -467,7 +445,7 @@ export default function DebtDetailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments.map((payment) => (
+                    {paymentsWithBalanceAfter.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell>
                           {format(parseISO(payment.payment_date), 'MMM d, yyyy')}
@@ -496,7 +474,7 @@ export default function DebtDetailPage() {
                           {formatCurrency(payment.interest_paid)}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          {formatCurrency(payment.remaining_balance)}
+                          {formatCurrency(payment.calculatedBalanceAfter)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">

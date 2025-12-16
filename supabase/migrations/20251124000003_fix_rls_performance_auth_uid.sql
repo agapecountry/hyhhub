@@ -454,6 +454,7 @@ CREATE POLICY "Household members can delete budget categories"
 
 DROP POLICY IF EXISTS "Users can join households via invite" ON household_members;
 CREATE POLICY "Users can join households via invite"
+  ON household_members
   FOR INSERT
   TO authenticated
   WITH CHECK (

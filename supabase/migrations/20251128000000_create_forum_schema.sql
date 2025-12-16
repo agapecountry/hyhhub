@@ -104,16 +104,19 @@ CREATE INDEX IF NOT EXISTS idx_forum_post_upvotes_post ON forum_post_upvotes(pos
 CREATE INDEX IF NOT EXISTS idx_forum_post_upvotes_user ON forum_post_upvotes(user_id);
 
 -- Triggers for updated_at
+DROP TRIGGER IF EXISTS update_forum_categories_updated_at ON forum_categories;
 CREATE TRIGGER update_forum_categories_updated_at
   BEFORE UPDATE ON forum_categories
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_forum_threads_updated_at ON forum_threads;
 CREATE TRIGGER update_forum_threads_updated_at
   BEFORE UPDATE ON forum_threads
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_forum_posts_updated_at ON forum_posts;
 CREATE TRIGGER update_forum_posts_updated_at
   BEFORE UPDATE ON forum_posts
   FOR EACH ROW
@@ -158,22 +161,26 @@ ALTER TABLE forum_moderators ENABLE ROW LEVEL SECURITY;
 ALTER TABLE forum_post_upvotes ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies: Forum Categories
+DROP POLICY IF EXISTS "Anyone can view active categories" ON forum_categories;
 CREATE POLICY "Anyone can view active categories"
   ON forum_categories FOR SELECT
   TO authenticated
   USING (is_active = true);
 
+DROP POLICY IF EXISTS "Moderators can manage categories" ON forum_categories;
 CREATE POLICY "Moderators can manage categories"
   ON forum_categories FOR ALL
   TO authenticated
   USING (is_forum_moderator(auth.uid()));
 
 -- RLS Policies: Forum Threads
+DROP POLICY IF EXISTS "Subscribed users can view threads" ON forum_threads;
 CREATE POLICY "Subscribed users can view threads"
   ON forum_threads FOR SELECT
   TO authenticated
   USING (has_active_subscription(auth.uid()));
 
+DROP POLICY IF EXISTS "Subscribed users can create threads" ON forum_threads;
 CREATE POLICY "Subscribed users can create threads"
   ON forum_threads FOR INSERT
   TO authenticated
@@ -182,6 +189,7 @@ CREATE POLICY "Subscribed users can create threads"
     AND user_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS "Users can update own threads" ON forum_threads;
 CREATE POLICY "Users can update own threads"
   ON forum_threads FOR UPDATE
   TO authenticated
@@ -190,17 +198,20 @@ CREATE POLICY "Users can update own threads"
     OR is_forum_moderator(auth.uid())
   );
 
+DROP POLICY IF EXISTS "Moderators can delete threads" ON forum_threads;
 CREATE POLICY "Moderators can delete threads"
   ON forum_threads FOR DELETE
   TO authenticated
   USING (is_forum_moderator(auth.uid()));
 
 -- RLS Policies: Forum Posts
+DROP POLICY IF EXISTS "Subscribed users can view posts" ON forum_posts;
 CREATE POLICY "Subscribed users can view posts"
   ON forum_posts FOR SELECT
   TO authenticated
   USING (has_active_subscription(auth.uid()));
 
+DROP POLICY IF EXISTS "Subscribed users can create posts" ON forum_posts;
 CREATE POLICY "Subscribed users can create posts"
   ON forum_posts FOR INSERT
   TO authenticated
@@ -209,6 +220,7 @@ CREATE POLICY "Subscribed users can create posts"
     AND user_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS "Users can update own posts" ON forum_posts;
 CREATE POLICY "Users can update own posts"
   ON forum_posts FOR UPDATE
   TO authenticated
@@ -217,6 +229,7 @@ CREATE POLICY "Users can update own posts"
     OR is_forum_moderator(auth.uid())
   );
 
+DROP POLICY IF EXISTS "Users can delete own posts" ON forum_posts;
 CREATE POLICY "Users can delete own posts"
   ON forum_posts FOR DELETE
   TO authenticated
@@ -226,11 +239,13 @@ CREATE POLICY "Users can delete own posts"
   );
 
 -- RLS Policies: Forum Moderators
+DROP POLICY IF EXISTS "Anyone can view moderators" ON forum_moderators;
 CREATE POLICY "Anyone can view moderators"
   ON forum_moderators FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Only admins can manage moderators" ON forum_moderators;
 CREATE POLICY "Only admins can manage moderators"
   ON forum_moderators FOR ALL
   TO authenticated
@@ -243,11 +258,13 @@ CREATE POLICY "Only admins can manage moderators"
   );
 
 -- RLS Policies: Post Upvotes
+DROP POLICY IF EXISTS "Subscribed users can view upvotes" ON forum_post_upvotes;
 CREATE POLICY "Subscribed users can view upvotes"
   ON forum_post_upvotes FOR SELECT
   TO authenticated
   USING (has_active_subscription(auth.uid()));
 
+DROP POLICY IF EXISTS "Subscribed users can manage own upvotes" ON forum_post_upvotes;
 CREATE POLICY "Subscribed users can manage own upvotes"
   ON forum_post_upvotes FOR ALL
   TO authenticated
@@ -286,6 +303,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp;
 
+DROP TRIGGER IF EXISTS update_thread_on_post_change ON forum_posts;
 CREATE TRIGGER update_thread_on_post_change
   AFTER INSERT OR DELETE ON forum_posts
   FOR EACH ROW
