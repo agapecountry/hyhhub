@@ -44,10 +44,15 @@ export function PlaidSyncButton({ plaidItemId, onSuccess, variant = 'outline', s
         throw new Error(result.error || 'Failed to sync transactions');
       }
 
-      const matchInfo = result.matched > 0 ? `, matched ${result.matched} duplicates` : '';
+      const fetchedCount = result.fetched ?? 0;
+      const syncedCount = result.synced ?? 0;
+      const matchInfo = result.matched > 0 ? `, matched ${result.matched}` : '';
+      
+      console.log('Sync result:', result);
+      
       toast({
         title: 'Success',
-        description: `Synced ${result.synced} transactions${matchInfo}`,
+        description: `Fetched ${fetchedCount}, synced ${syncedCount} new${matchInfo}`,
       });
 
       if (onSuccess) {

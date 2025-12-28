@@ -401,6 +401,7 @@ export default function AccountDetailPage() {
             .from('plaid_transactions')
             .select('*')
             .eq('plaid_account_id', plaidAccountData.id)
+            .neq('hidden', true)  // Filter out soft-deleted transactions
             .order('date', { ascending: false })
             .order('created_at', { ascending: false });
 
@@ -730,12 +731,24 @@ export default function AccountDetailPage() {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('id', transactionToDelete.id);
+      // Check if this is a Plaid transaction (soft delete) or manual transaction (hard delete)
+      if (transactionToDelete.plaid_transaction_id) {
+        // Soft delete for Plaid transactions - set hidden = true
+        const { error } = await supabase
+          .from('plaid_transactions')
+          .update({ hidden: true })
+          .eq('id', transactionToDelete.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        // Hard delete for manual transactions
+        const { error } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('id', transactionToDelete.id);
+
+        if (error) throw error;
+      }
 
       // Update account balance (checkbook model for both manual and Plaid)
       const newBalance = (account?.balance || 0) - transactionToDelete.amount;
@@ -1616,19 +1629,17 @@ export default function AccountDetailPage() {
                             >
                               <Edit2 className="h-4 w-4" />
                             </Button>
-                            {!transaction.plaid_transaction_id && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setTransactionToDelete(transaction);
-                                  setDeleteDialogOpen(true);
-                                }}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setTransactionToDelete(transaction);
+                                setDeleteDialogOpen(true);
+                              }}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>

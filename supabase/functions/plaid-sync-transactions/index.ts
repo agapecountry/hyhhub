@@ -62,92 +62,65 @@ serve(async (req) => {
 
     const plaidClient = new PlaidApi(plaidConfig);
 
-    console.log('Current cursor:', plaidItem.transactions_cursor || 'none (will do initial fetch)');
+    // First, call /transactions/refresh to tell Plaid to fetch new transactions from the institution
+    try {
+      console.log('Calling /transactions/refresh to fetch new transactions from institution...');
+      await plaidClient.transactionsRefresh({
+        access_token: plaidItem.access_token,
+      });
+      console.log('Refresh request sent successfully');
+      
+      // Wait a moment for Plaid to process the refresh
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (refreshError: any) {
+      // Refresh may fail if not enabled or rate limited - continue with sync anyway
+      console.log('Refresh skipped or failed:', refreshError?.response?.data?.error_code || refreshError.message);
+    }
+
+    // Always use transactionsGet to fetch recent transactions
+    // This is more reliable than cursor-based sync which can get out of sync
+    console.log('Fetching transactions using transactionsGet...');
     
     let transactions: any[] = [];
-    let cursor = plaidItem.transactions_cursor || '';
-    const addedTransactions: any[] = [];
-    const modifiedTransactions: any[] = [];
     const removedTransactionIds: string[] = [];
-
-    // If no cursor exists, this is the first sync - use transactions/get for historical data
-    if (!plaidItem.transactions_cursor) {
-      console.log('First sync detected - fetching historical transactions...');
-      
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 730); // 2 years back
-      const endDate = new Date();
-      
+    
+    // Determine how far back to fetch
+    const isInitialSync = !plaidItem.transactions_cursor;
+    const daysBack = isInitialSync ? 730 : 90; // 2 years for initial, 90 days for updates
+    
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysBack);
+    const endDate = new Date();
+    
+    console.log(`Fetching transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}...`);
+    
+    // Fetch all transactions with pagination
+    let offset = 0;
+    const count = 500;
+    let totalAvailable = 0;
+    
+    do {
       const transactionsResponse = await plaidClient.transactionsGet({
         access_token: plaidItem.access_token,
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
         options: {
-          count: 500,
-          offset: 0,
+          count: count,
+          offset: offset,
         },
       });
       
-      transactions = transactionsResponse.data.transactions;
-      console.log(`Initial fetch: ${transactions.length} transactions`);
+      transactions.push(...transactionsResponse.data.transactions);
+      totalAvailable = transactionsResponse.data.total_transactions;
+      offset += count;
       
-      // Now sync to get the cursor for future incremental updates
-      const syncResponse = await plaidClient.transactionsSync({
-        access_token: plaidItem.access_token,
-        cursor: '',
-      });
-      cursor = syncResponse.data.next_cursor;
-      console.log('Initialized cursor for future syncs');
-      
-    } else {
-      // Use transactions/sync for incremental updates
-      console.log('Incremental sync using cursor...');
-      let hasMore = true;
-
-      try {
-        while (hasMore) {
-          const syncResponse = await plaidClient.transactionsSync({
-            access_token: plaidItem.access_token,
-            cursor: cursor,
-          });
-
-          const data = syncResponse.data;
-          
-          addedTransactions.push(...data.added);
-          modifiedTransactions.push(...data.modified);
-          removedTransactionIds.push(...data.removed.map((r: any) => r.transaction_id));
-          
-          hasMore = data.has_more;
-          cursor = data.next_cursor;
-          
-          console.log(`Sync batch: ${data.added.length} added, ${data.modified.length} modified, ${data.removed.length} removed`);
-        }
-
-        console.log(`Total from sync: ${addedTransactions.length} added, ${modifiedTransactions.length} modified, ${removedTransactionIds.length} removed`);
-        transactions = [...addedTransactions, ...modifiedTransactions];
-      } catch (syncError: any) {
-        // If cursor is invalid (400 error), log and continue without resetting
-        // This preserves existing data and just skips this sync
-        if (syncError?.response?.status === 400) {
-          console.error('Invalid cursor - skipping sync to preserve existing data. Cursor may need manual reset.');
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'Sync cursor is invalid. Please contact support to safely reset the sync state.',
-              preservedData: true,
-            }),
-            {
-              status: 200, // Return 200 so it doesn't show as error, but with success: false
-              headers: {
-                ...corsHeaders,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-        }
-        throw syncError;
-      }
-    }
+      console.log(`Fetched ${transactions.length} of ${totalAvailable} transactions...`);
+    } while (transactions.length < totalAvailable);
+    
+    console.log(`Total fetched: ${transactions.length} transactions`);
+    
+    // Update cursor to mark sync as done (for tracking purposes)
+    const cursor = new Date().toISOString();
 
     // Get all plaid_accounts for this item
     const { data: plaidAccounts, error: accountsError } = await supabaseClient
@@ -178,7 +151,7 @@ serve(async (req) => {
     // Load bills and debts for auto-matching
     const { data: bills } = await supabaseClient
       .from('bills')
-      .select('id, company, amount, due_date, category_id')
+      .select('id, company, amount, due_date, category_id, institution, merchant_name, matching_keywords')
       .eq('household_id', plaidItem.household_id)
       .eq('is_active', true);
 
@@ -196,6 +169,7 @@ serve(async (req) => {
 
     // Helper function to calculate string similarity (simple version)
     const similarity = (str1: string, str2: string): number => {
+      if (!str1 || !str2) return 0;
       const s1 = str1.toLowerCase().trim();
       const s2 = str2.toLowerCase().trim();
       if (s1 === s2) return 1.0;
@@ -217,16 +191,15 @@ serve(async (req) => {
       let matchConfidence = null;
 
       const txAmount = Math.abs(transaction.amount);
-      const txName = transaction.merchant_name || transaction.name;
+      const txName = transaction.merchant_name || transaction.name || '';
       const txDate = new Date(transaction.date);
 
       // Try to match to bills first
       if (bills && bills.length > 0) {
         for (const bill of bills) {
-          // Calculate name similarity against multiple fields
+          // Calculate name similarity against multiple fields (bills use company, not name)
           const nameSim = Math.max(
-            similarity(txName, bill.name),
-            bill.company ? similarity(txName, bill.company) : 0,
+            similarity(txName, bill.company),
             bill.merchant_name ? similarity(txName, bill.merchant_name) : 0,
             bill.institution ? similarity(txName, bill.institution) : 0
           );
@@ -234,7 +207,7 @@ serve(async (req) => {
           // Check if any keywords match
           let keywordMatch = false;
           if (bill.matching_keywords && Array.isArray(bill.matching_keywords)) {
-            keywordMatch = bill.matching_keywords.some(kw => 
+            keywordMatch = bill.matching_keywords.some((kw: string) => 
               txName.toLowerCase().includes(kw.toLowerCase())
             );
           }
@@ -249,16 +222,16 @@ serve(async (req) => {
             categoryId = bill.category_id;
             autoMatched = true;
             matchConfidence = 'high';
-            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (high confidence, nameSim: ${nameSim}, keyword: ${keywordMatch})`);
+            console.log(`Matched transaction "${txName}" to bill "${bill.company}" (high confidence, nameSim: ${nameSim}, keyword: ${keywordMatch})`);
             break;
           } 
           // Medium confidence: decent name match + amount or date
-          else if (nameSim > 0.6 && (amountMatch || dateMatch)) {
+          else if ((nameSim > 0.5 || keywordMatch) && (amountMatch || dateMatch)) {
             billId = bill.id;
             categoryId = bill.category_id;
             autoMatched = true;
             matchConfidence = 'medium';
-            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (medium confidence, nameSim: ${nameSim})`);
+            console.log(`Matched transaction "${txName}" to bill "${bill.company}" (medium confidence, nameSim: ${nameSim})`);
             break;
           }
           // Low confidence: keyword match + amount
@@ -267,7 +240,7 @@ serve(async (req) => {
             categoryId = bill.category_id;
             autoMatched = true;
             matchConfidence = 'low';
-            console.log(`Matched transaction "${txName}" to bill "${bill.name}" (low confidence, keyword match)`);
+            console.log(`Matched transaction "${txName}" to bill "${bill.company}" (low confidence, keyword match)`);
             break;
           }
         }
@@ -287,7 +260,7 @@ serve(async (req) => {
           // Check if any keywords match
           let keywordMatch = false;
           if (debt.matching_keywords && Array.isArray(debt.matching_keywords)) {
-            keywordMatch = debt.matching_keywords.some(kw => 
+            keywordMatch = debt.matching_keywords.some((kw: string) => 
               txName.toLowerCase().includes(kw.toLowerCase())
             );
           }
@@ -402,14 +375,19 @@ serve(async (req) => {
 
     let insertedCount = 0;
     if (transactionsToInsert.length > 0) {
-      // Get existing transaction IDs to avoid overwriting reconciled data
+      // Get existing transaction IDs (including hidden ones) to avoid overwriting or re-inserting
       const txIds = transactionsToInsert.map(t => t.transaction_id);
       const { data: existingTx } = await supabaseClient
         .from('plaid_transactions')
-        .select('transaction_id')
+        .select('transaction_id, hidden')
         .in('transaction_id', txIds);
       
+      // Include both existing and hidden transactions - hidden ones should never be re-inserted
       const existingIds = new Set(existingTx?.map(t => t.transaction_id) || []);
+      const hiddenCount = existingTx?.filter(t => t.hidden).length || 0;
+      if (hiddenCount > 0) {
+        console.log(`Skipping ${hiddenCount} hidden (soft-deleted) transactions`);
+      }
       
       // Only insert NEW transactions, never update existing ones
       const newTransactions = transactionsToInsert.filter(t => !existingIds.has(t.transaction_id));
@@ -489,8 +467,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        added: addedTransactions.length,
-        modified: modifiedTransactions.length,
+        fetched: transactions.length,
         removed: removedCount,
         synced: insertedCount,
         user_modified_preserved: userModifiedIds.size,
