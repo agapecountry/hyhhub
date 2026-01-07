@@ -402,6 +402,7 @@ export default function AccountDetailPage() {
             .select('*')
             .eq('plaid_account_id', plaidAccountData.id)
             .neq('hidden', true)  // Filter out soft-deleted transactions
+            .is('matched_manual_transaction_id', null)  // Filter out transactions matched to manual entries
             .order('date', { ascending: false })
             .order('created_at', { ascending: false });
 
