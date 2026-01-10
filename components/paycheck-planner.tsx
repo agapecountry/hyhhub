@@ -175,7 +175,7 @@ export function PaycheckPlanner() {
     if (!currentHousehold) return;
 
     try {
-      const [billsResult, debtsResult, budgetResult, householdResult] = await Promise.all([
+      const [billsResult, debtsResult, budgetResult, householdResult, paymentsResult] = await Promise.all([
         supabase
           .from('bills')
           .select('*')
@@ -206,15 +206,33 @@ export function PaycheckPlanner() {
           .select('debt_payoff_strategy, debt_extra_payment')
           .eq('id', currentHousehold.id)
           .maybeSingle(),
+        supabase
+          .from('debt_payments')
+          .select('debt_id, principal_paid')
+          .eq('household_id', currentHousehold.id),
       ]);
 
       if (billsResult.error) throw billsResult.error;
       if (debtsResult.error) throw debtsResult.error;
       if (budgetResult.error) throw budgetResult.error;
       if (householdResult.error) throw householdResult.error;
+      if (paymentsResult.error) throw paymentsResult.error;
+
+      // Calculate principal paid per debt
+      const principalPaidMap = new Map<string, number>();
+      (paymentsResult.data || []).forEach(payment => {
+        const current = principalPaidMap.get(payment.debt_id) || 0;
+        principalPaidMap.set(payment.debt_id, current + payment.principal_paid);
+      });
+
+      // Adjust debt current_balance to reflect remaining balance
+      const adjustedDebts = (debtsResult.data || []).map(debt => ({
+        ...debt,
+        current_balance: Math.max(0, debt.current_balance - (principalPaidMap.get(debt.id) || 0)),
+      }));
 
       setBills(billsResult.data || []);
-      setDebts(debtsResult.data || []);
+      setDebts(adjustedDebts);
 
       // Transform budget categories to include name from transaction_categories
       const transformedBudgetCategories = (budgetResult.data || []).map(cat => ({
