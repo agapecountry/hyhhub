@@ -385,7 +385,6 @@ export function PaycheckPlanner() {
       // Update local state for all matching records
       setStoredScheduledPayments(prev => 
         prev.map(sp => 
-          sp.household_id === currentHousehold.id &&
           sp.payment_type === paymentType &&
           sp.payment_id === paymentId &&
           sp.due_date === dueDateStr
