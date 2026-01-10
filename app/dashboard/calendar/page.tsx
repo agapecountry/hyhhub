@@ -52,10 +52,27 @@ interface HouseholdMember {
   email: string;
 }
 
+interface MealPlan {
+  id: string;
+  household_id: string;
+  recipe_id: string | null;
+  meal_name: string | null;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  meal_date: string;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  recipes?: {
+    name: string;
+  };
+}
+
 export default function CalendarPage() {
   const { currentHousehold } = useHousehold();
   const { user } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [meals, setMeals] = useState<MealPlan[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [colorCategories, setColorCategories] = useState<ColorCategory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,6 +109,7 @@ export default function CalendarPage() {
   useEffect(() => {
     if (currentHousehold) {
       loadEvents();
+      loadMeals();
       loadMembers();
       loadColorCategories();
     }
@@ -129,6 +147,27 @@ export default function CalendarPage() {
       toast({
         title: 'Error',
         description: error.message || 'Failed to load events',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const loadMeals = async () => {
+    if (!currentHousehold) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('meal_plans')
+        .select('*, recipes(name)')
+        .eq('household_id', currentHousehold.id)
+        .order('meal_date', { ascending: true });
+
+      if (error) throw error;
+      setMeals(data || []);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load meals',
         variant: 'destructive',
       });
     }
@@ -697,6 +736,10 @@ export default function CalendarPage() {
       }).map(e => getEventDisplay(e))
     : [];
 
+  const selectedDateMeals = selectedDate
+    ? meals.filter(m => isSameDay(parseISO(m.meal_date), selectedDate))
+    : [];
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -879,6 +922,7 @@ export default function CalendarPage() {
                   ))}
                   {daysInMonth.map(day => {
                     const dayEvents = events.filter(e => isSameDay(parseISO(e.start_time), day));
+                    const dayMeals = meals.filter(m => isSameDay(parseISO(m.meal_date), day));
                     const isSelected = selectedDate && isSameDay(day, selectedDate);
                     const isToday = isSameDay(day, new Date());
 
@@ -892,13 +936,20 @@ export default function CalendarPage() {
                         } ${isToday ? 'border-primary border-2' : ''}`}
                       >
                         <div className="text-sm font-medium">{format(day, 'd')}</div>
-                        {dayEvents.length > 0 && (
+                        {(dayEvents.length > 0 || dayMeals.length > 0) && (
                           <div className="flex gap-0.5 mt-1 flex-wrap">
-                            {dayEvents.slice(0, 3).map(event => (
+                            {dayEvents.slice(0, 2).map(event => (
                               <div
                                 key={event.id}
                                 className="w-1.5 h-1.5 rounded-full"
                                 style={{ backgroundColor: event.color }}
+                              />
+                            ))}
+                            {dayMeals.slice(0, 2).map(meal => (
+                              <div
+                                key={meal.id}
+                                className="w-1.5 h-1.5 rounded-full bg-orange-500"
+                                title={`${meal.meal_type}: ${meal.recipes?.name || meal.meal_name}`}
                               />
                             ))}
                           </div>
@@ -910,27 +961,51 @@ export default function CalendarPage() {
               </CardContent>
             </Card>
 
-            {selectedDate && selectedDateEvents.length > 0 && (
+            {selectedDate && (selectedDateEvents.length > 0 || selectedDateMeals.length > 0) && (
               <Card className="mt-6">
                 <CardHeader>
-                  <CardTitle>Events on {format(selectedDate, 'MMMM d, yyyy')}</CardTitle>
+                  <CardTitle>Events & Meals on {format(selectedDate, 'MMMM d, yyyy')}</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {selectedDateEvents.map(event => {
-                    const originalEvent = events.find(e => e.id === event.id)!;
-                    return (
-                      <EventCard
-                        key={event.id}
-                        event={event}
-                        members={members}
-                        onEdit={openEditDialog}
-                        onDelete={handleDeleteEvent}
-                        loading={loading}
-                        canEdit={canEditEvent(originalEvent)}
-                        canDelete={canDeleteEvent(originalEvent)}
-                      />
-                    );
-                  })}
+                <CardContent className="space-y-4">
+                  {selectedDateMeals.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-semibold text-muted-foreground">Meals</h3>
+                      {selectedDateMeals.map(meal => (
+                        <div key={meal.id} className="flex items-center gap-2 p-2 rounded-lg bg-orange-50 border border-orange-200">
+                          <div className="w-2 h-2 rounded-full bg-orange-500" />
+                          <div className="flex-1">
+                            <div className="font-medium capitalize">{meal.meal_type}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {meal.recipes?.name || meal.meal_name || 'No meal specified'}
+                            </div>
+                            {meal.notes && (
+                              <div className="text-xs text-muted-foreground mt-1">{meal.notes}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedDateEvents.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-semibold text-muted-foreground">Events</h3>
+                      {selectedDateEvents.map(event => {
+                        const originalEvent = events.find(e => e.id === event.id)!;
+                        return (
+                          <EventCard
+                            key={event.id}
+                            event={event}
+                            members={members}
+                            onEdit={openEditDialog}
+                            onDelete={handleDeleteEvent}
+                            loading={loading}
+                            canEdit={canEditEvent(originalEvent)}
+                            canDelete={canDeleteEvent(originalEvent)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

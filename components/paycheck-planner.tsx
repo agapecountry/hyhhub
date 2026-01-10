@@ -103,7 +103,6 @@ export function PaycheckPlanner() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [paycheckToDelete, setPaycheckToDelete] = useState<PaycheckSettings | null>(null);
   const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
-  const [manualPayments, setManualPayments] = useState<Map<string, { isPaid: boolean; isDismissed: boolean; dueDate?: string }>>(new Map());
   const [storedScheduledPayments, setStoredScheduledPayments] = useState<StoredScheduledPayment[]>([]);
 
   const [formData, setFormData] = useState({
@@ -117,7 +116,6 @@ export function PaycheckPlanner() {
     if (currentHousehold) {
       loadPaychecks();
       loadBillsAndDebts();
-      loadManualPayments();
       loadStoredScheduledPayments();
     }
   }, [currentHousehold]);
@@ -152,33 +150,6 @@ export function PaycheckPlanner() {
     }
   };
 
-  const loadManualPayments = async () => {
-    if (!currentHousehold) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('paycheck_planner_payments')
-        .select('*')
-        .eq('household_id', currentHousehold.id);
-
-      if (error) throw error;
-
-      const paymentsMap = new Map<string, { isPaid: boolean; isDismissed: boolean; dueDate?: string }>();
-      (data || []).forEach(payment => {
-        // Include paycheck_date in the key to uniquely identify each payment instance
-        const key = `${payment.payment_type}-${payment.payment_id}-${payment.paycheck_date || ''}`;
-        paymentsMap.set(key, {
-          isPaid: payment.is_paid,
-          isDismissed: payment.is_dismissed,
-          dueDate: payment.paycheck_date,
-        });
-      });
-
-      setManualPayments(paymentsMap);
-    } catch (error: any) {
-      console.error('Error loading manual payments:', error);
-    }
-  };
 
   const loadStoredScheduledPayments = async () => {
     if (!currentHousehold) return;
@@ -397,120 +368,27 @@ export function PaycheckPlanner() {
 
     try {
       const dueDateStr = format(dueDate, 'yyyy-MM-dd');
-      const key = `${paymentType}-${paymentId}-${dueDateStr}`;
       const newPaidStatus = !currentPaidStatus;
 
-      // Check if record exists for this specific payment instance (by due date)
-      const { data: existing } = await supabase
-        .from('paycheck_planner_payments')
-        .select('id')
-        .eq('household_id', currentHousehold.id)
-        .eq('payment_type', paymentType)
-        .eq('payment_id', paymentId)
-        .eq('paycheck_date', dueDateStr)
-        .maybeSingle();
-
-      if (existing) {
-        // Update existing record
-        const { error } = await supabase
-          .from('paycheck_planner_payments')
-          .update({
-            is_paid: newPaidStatus,
-            paid_date: newPaidStatus ? format(new Date(), 'yyyy-MM-dd') : null,
-            marked_by: (await supabase.auth.getUser()).data.user?.id,
-          })
-          .eq('id', existing.id);
-
-        if (error) throw error;
-      } else {
-        // Create new record with the due date
-        const { error } = await supabase
-          .from('paycheck_planner_payments')
-          .insert({
-            household_id: currentHousehold.id,
-            payment_type: paymentType,
-            payment_id: paymentId,
-            paycheck_date: dueDateStr,
-            is_paid: newPaidStatus,
-            paid_date: newPaidStatus ? format(new Date(), 'yyyy-MM-dd') : null,
-            marked_by: (await supabase.auth.getUser()).data.user?.id,
-          });
-
-        if (error) throw error;
-      }
-
-      // Also update the stored scheduled payments table
-      // Use payment_id and due_date to find the correct record
-      const { data: scheduledPayment } = await supabase
+      // Update the payment in the scheduled_payments table
+      // Update all matching records (in case of duplicates) to ensure consistency
+      const { error: updateError } = await supabase
         .from('paycheck_scheduled_payments')
-        .select('id, paycheck_id, paycheck_date, payment_name, amount, is_split, split_part')
+        .update({ is_paid: newPaidStatus })
         .eq('household_id', currentHousehold.id)
         .eq('payment_type', paymentType)
         .eq('payment_id', paymentId)
-        .eq('due_date', dueDateStr)
-        .maybeSingle();
+        .eq('due_date', dueDateStr);
 
-      if (scheduledPayment) {
-        // Update existing scheduled payment
-        await supabase
-          .from('paycheck_scheduled_payments')
-          .update({ is_paid: newPaidStatus })
-          .eq('id', scheduledPayment.id);
-      } else if (newPaidStatus) {
-        // Create a new scheduled payment record if marking as paid and none exists
-        // Find the payment details from the current schedule
-        const paymentInSchedule = schedule
-          .flatMap(p => p.payments.map(pay => ({ ...pay, paycheckId: p.paycheckId, paycheckDate: p.paycheckDate })))
-          .find(p => p.type === paymentType && p.id === paymentId && format(p.due_date, 'yyyy-MM-dd') === dueDateStr);
+      if (updateError) throw updateError;
 
-        if (paymentInSchedule) {
-          const { error: insertError } = await supabase
-            .from('paycheck_scheduled_payments')
-            .insert({
-              household_id: currentHousehold.id,
-              paycheck_id: paymentInSchedule.paycheckId,
-              paycheck_date: format(paymentInSchedule.paycheckDate, 'yyyy-MM-dd'),
-              payment_type: paymentType,
-              payment_id: paymentId,
-              payment_name: paymentInSchedule.name,
-              amount: paymentInSchedule.amount,
-              due_date: dueDateStr,
-              is_paid: true,
-              is_split: paymentInSchedule.isSplit || false,
-              split_part: paymentInSchedule.splitPart || null,
-            });
-
-          if (insertError) {
-            console.error('Error creating scheduled payment record:', insertError);
-          } else {
-            // Add to local state
-            setStoredScheduledPayments(prev => [...prev, {
-              id: '', // Will be set by DB
-              paycheck_id: paymentInSchedule.paycheckId,
-              paycheck_date: format(paymentInSchedule.paycheckDate, 'yyyy-MM-dd'),
-              payment_type: paymentType as 'bill' | 'debt' | 'extra-debt' | 'budget',
-              payment_id: paymentId,
-              payment_name: paymentInSchedule.name,
-              amount: paymentInSchedule.amount,
-              due_date: dueDateStr,
-              is_paid: true,
-              is_split: paymentInSchedule.isSplit || false,
-              split_part: paymentInSchedule.splitPart || null,
-            }]);
-          }
-        }
-      }
-
-      // Update local state
-      const updatedMap = new Map(manualPayments);
-      const currentState = updatedMap.get(key) || { isPaid: false, isDismissed: false };
-      updatedMap.set(key, { ...currentState, isPaid: newPaidStatus, dueDate: dueDateStr });
-      setManualPayments(updatedMap);
-
-      // Update stored scheduled payments local state
+      // Update local state for all matching records
       setStoredScheduledPayments(prev => 
         prev.map(sp => 
-          sp.payment_type === paymentType && sp.payment_id === paymentId && sp.due_date === dueDateStr
+          sp.household_id === currentHousehold.id &&
+          sp.payment_type === paymentType &&
+          sp.payment_id === paymentId &&
+          sp.due_date === dueDateStr
             ? { ...sp, is_paid: newPaidStatus }
             : sp
         )
@@ -521,13 +399,14 @@ export function PaycheckPlanner() {
         description: `Payment has been ${newPaidStatus ? 'marked as paid' : 'unmarked'}`,
       });
 
-      // Regenerate schedule to update history/active split
+      // Reload data to refresh UI
+      await loadStoredScheduledPayments();
       await generateSchedule();
     } catch (error: any) {
       console.error('Error toggling paid status:', error);
       toast({
         title: 'Error',
-        description: 'Failed to update payment status',
+        description: error.message || 'Failed to update payment status',
         variant: 'destructive',
       });
     }
@@ -538,9 +417,8 @@ export function PaycheckPlanner() {
 
     try {
       const dueDateStr = format(dueDate, 'yyyy-MM-dd');
-      const key = `${paymentType}-${paymentId}-${dueDateStr}`;
 
-      // Check if record exists for this specific due date
+      // Store dismissed status in paycheck_planner_payments (kept for dismissed tracking only)
       const { data: existing } = await supabase
         .from('paycheck_planner_payments')
         .select('id')
@@ -551,7 +429,6 @@ export function PaycheckPlanner() {
         .maybeSingle();
 
       if (existing) {
-        // Update existing record
         const { error } = await supabase
           .from('paycheck_planner_payments')
           .update({
@@ -562,7 +439,6 @@ export function PaycheckPlanner() {
 
         if (error) throw error;
       } else {
-        // Create new record with the specific due date
         const { error } = await supabase
           .from('paycheck_planner_payments')
           .insert({
@@ -577,18 +453,11 @@ export function PaycheckPlanner() {
         if (error) throw error;
       }
 
-      // Update local state
-      const updatedMap = new Map(manualPayments);
-      const currentState = updatedMap.get(key) || { isPaid: false, isDismissed: false };
-      updatedMap.set(key, { ...currentState, isDismissed: true, dueDate: dueDateStr });
-      setManualPayments(updatedMap);
-
       toast({
         title: 'Payment Dismissed',
         description: 'This payment instance has been removed from unassigned list',
       });
 
-      // Regenerate schedule to remove from unassigned
       await generateSchedule();
     } catch (error: any) {
       console.error('Error dismissing payment:', error);
@@ -715,6 +584,8 @@ export function PaycheckPlanner() {
     const today = startOfDay(new Date());
     // Look back 6 months to match retention policy and include past paychecks
     const startDate = addMonths(today, -6);
+    // Define the lock threshold - paychecks within 7 days should be locked
+    const lockThreshold = addDays(today, 7);
     const allPaycheckDates: Array<{ date: Date; name: string; id: string; amount: number }> = [];
 
     paychecks.forEach(paycheck => {
@@ -759,17 +630,18 @@ export function PaycheckPlanner() {
 
     allPaycheckDates.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    // Separate past and future paycheck periods
-    // Past periods use STORED scheduled payments (locked in)
-    // Future periods get freshly scheduled
-    const pastPaycheckPeriods: PaycheckPeriod[] = [];
-    const futurePaycheckPeriods: PaycheckPeriod[] = [];
+    // Separate locked and unlocked paycheck periods
+    // Locked periods (past OR within 7 days) use STORED scheduled payments (unchangeable)
+    // Unlocked periods (more than 7 days away) get freshly scheduled
+    const lockedPaycheckPeriods: PaycheckPeriod[] = [];
+    const unlockedPaycheckPeriods: PaycheckPeriod[] = [];
 
     allPaycheckDates.forEach(paycheck => {
       const paycheckDateStr = format(paycheck.date, 'yyyy-MM-dd');
       
-      if (isBefore(paycheck.date, today)) {
-        // For past paychecks, load from stored scheduled payments
+      // Lock paychecks that are in the past OR within the next 7 days
+      if (isBefore(paycheck.date, lockThreshold)) {
+        // For locked paychecks, load from stored scheduled payments
         const storedPayments = storedScheduledPayments.filter(
           sp => sp.paycheck_date === paycheckDateStr && sp.paycheck_id === paycheck.id
         );
@@ -788,7 +660,7 @@ export function PaycheckPlanner() {
         
         const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
         
-        pastPaycheckPeriods.push({
+        lockedPaycheckPeriods.push({
           paycheckDate: paycheck.date,
           paycheckName: paycheck.name,
           paycheckId: paycheck.id,
@@ -798,7 +670,8 @@ export function PaycheckPlanner() {
           payments,
         });
       } else {
-        futurePaycheckPeriods.push({
+        // Unlocked paychecks (more than 7 days away) can be rescheduled
+        unlockedPaycheckPeriods.push({
           paycheckDate: paycheck.date,
           paycheckName: paycheck.name,
           paycheckId: paycheck.id,
@@ -810,22 +683,70 @@ export function PaycheckPlanner() {
       }
     });
 
-    // Only run the scheduler on FUTURE paycheck periods
-    const { schedule: futureSchedule, unassigned } = generatePaycheckSchedule(
-      futurePaycheckPeriods,
-      bills,
-      debts,
-      budgetCategories,
+    // Filter out bills/debts that are already assigned to locked paychecks
+    // This prevents them from appearing in the unassigned list
+    const lockedPaymentKeys = new Set<string>();
+    lockedPaycheckPeriods.forEach(period => {
+      period.payments.forEach(payment => {
+        const dueDateStr = format(payment.due_date, 'yyyy-MM-dd');
+        const key = `${payment.type}-${payment.id}-${dueDateStr}`;
+        lockedPaymentKeys.add(key);
+      });
+    });
+
+    // Filter bills to exclude those already in locked paychecks
+    const availableBills = bills.filter(bill => {
+      // Check if this bill's next due date is already locked
+      const nextDueDate = new Date();
+      nextDueDate.setDate(bill.due_date);
+      if (nextDueDate < new Date()) {
+        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+      }
+      const dueDateStr = format(nextDueDate, 'yyyy-MM-dd');
+      const key = `bill-${bill.id}-${dueDateStr}`;
+      return !lockedPaymentKeys.has(key);
+    });
+
+    // Filter debts to exclude those already in locked paychecks
+    const availableDebts = debts.filter(debt => {
+      const nextDueDate = new Date();
+      nextDueDate.setDate(debt.payment_day);
+      if (nextDueDate < new Date()) {
+        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+      }
+      const dueDateStr = format(nextDueDate, 'yyyy-MM-dd');
+      const key = `debt-${debt.id}-${dueDateStr}`;
+      return !lockedPaymentKeys.has(key);
+    });
+
+    // Filter budget categories to exclude those already in locked paychecks
+    const availableBudgetCategories = budgetCategories.filter(category => {
+      const nextDueDate = new Date();
+      nextDueDate.setDate(category.due_date);
+      if (nextDueDate < new Date()) {
+        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+      }
+      const dueDateStr = format(nextDueDate, 'yyyy-MM-dd');
+      const key = `budget-${category.id}-${dueDateStr}`;
+      return !lockedPaymentKeys.has(key);
+    });
+
+    // Only run the scheduler on UNLOCKED paycheck periods with available (non-locked) payments
+    const { schedule: unlockedSchedule, unassigned } = generatePaycheckSchedule(
+      unlockedPaycheckPeriods,
+      availableBills,
+      availableDebts,
+      availableBudgetCategories,
       debtStrategy,
       extraPayment
     );
 
-    // Save newly scheduled payments for ALL paychecks that don't have stored data yet
-    // This includes both future paychecks and any active paychecks that haven't been saved
-    await saveNewScheduledPayments(futureSchedule);
+    // Save newly scheduled payments for paychecks that don't have stored data yet
+    // This locks them in the database
+    await saveNewScheduledPayments(unlockedSchedule);
 
-    // Combine past periods (with stored payments) with future scheduled periods
-    const generatedSchedule = [...pastPaycheckPeriods, ...futureSchedule];
+    // Combine locked periods (with stored payments) with unlocked scheduled periods
+    const generatedSchedule = [...lockedPaycheckPeriods, ...unlockedSchedule];
 
     // Load transactions to mark paid status (look back 6 months to match schedule lookback)
     try {
@@ -840,19 +761,15 @@ export function PaycheckPlanner() {
         console.error('Error fetching transactions:', transError);
       }
 
-      // Mark payments as paid based on transactions or manual status
+      // Mark payments as paid based on transactions
       // Only check transaction matching for payments due within the next 60 days (optimization)
       const sixtyDaysFromNow = addDays(today, 60);
       
       generatedSchedule.forEach(period => {
         period.payments.forEach(payment => {
-          // Create key with due date to uniquely identify this payment instance
-          const dueDateStr = format(payment.due_date, 'yyyy-MM-dd');
-          const manualKey = `${payment.type}-${payment.id}-${dueDateStr}`;
-          const manualStatus = manualPayments.get(manualKey);
-
-          if (manualStatus?.isPaid) {
-            payment.isPaid = true;
+          // Payment.isPaid is already set from stored scheduled payments if it exists
+          // Only do transaction matching if not already marked paid
+          if (payment.isPaid) {
             return;
           }
 
@@ -928,14 +845,30 @@ export function PaycheckPlanner() {
     });
 
     // Separate dismissed payments from unassigned
+    // Load dismissed payments from paycheck_planner_payments table
+    let dismissedPaymentKeys = new Set<string>();
+    try {
+      const { data: dismissedData } = await supabase
+        .from('paycheck_planner_payments')
+        .select('payment_type, payment_id, paycheck_date')
+        .eq('household_id', currentHousehold.id)
+        .eq('is_dismissed', true);
+      
+      (dismissedData || []).forEach(d => {
+        const key = `${d.payment_type}-${d.payment_id}-${d.paycheck_date}`;
+        dismissedPaymentKeys.add(key);
+      });
+    } catch (error) {
+      console.error('Error loading dismissed payments:', error);
+    }
+
     const filteredUnassigned: ScheduleUnassignedPayment[] = [];
     const dismissedList: ScheduleUnassignedPayment[] = [];
 
     unassigned.forEach(payment => {
-      // Check if THIS specific instance (by due date) is dismissed
       const dueDateStr = format(payment.dueDate, 'yyyy-MM-dd');
       const key = `${payment.type}-${payment.id}-${dueDateStr}`;
-      const isDismissed = manualPayments.get(key)?.isDismissed || false;
+      const isDismissed = dismissedPaymentKeys.has(key);
 
       if (isDismissed) {
         dismissedList.push(payment);
@@ -1289,35 +1222,26 @@ export function PaycheckPlanner() {
                         <span className={`font-semibold ${payment.isFocusDebt ? 'text-amber-700' : 'text-destructive'}`}>
                           -{formatCurrency(payment.amount)}
                         </span>
-                        {(() => {
-                          const dueDateStr = format(payment.due_date, 'yyyy-MM-dd');
-                          const manualKey = `${payment.type}-${payment.id}-${dueDateStr}`;
-                          const manualStatus = manualPayments.get(manualKey);
-                          const isPaid = manualStatus?.isPaid || payment.isPaid || false;
-
-                          return (
-                            <Button
-                              variant={isPaid ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => {
-                                toggleManualPaid(payment.type, payment.id, payment.due_date, isPaid);
-                              }}
-                              className={isPaid ? "bg-green-600 hover:bg-green-700" : ""}
-                            >
-                              {isPaid ? (
-                                <>
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Paid
-                                </>
-                              ) : (
-                                <>
-                                  <Check className="h-3 w-3 mr-1" />
-                                  Mark Paid
-                                </>
-                              )}
-                            </Button>
-                          );
-                        })()}
+                        <Button
+                          variant={payment.isPaid ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            toggleManualPaid(payment.type, payment.id, payment.due_date, payment.isPaid || false);
+                          }}
+                          className={payment.isPaid ? "bg-green-600 hover:bg-green-700" : ""}
+                        >
+                          {payment.isPaid ? (
+                            <>
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Paid
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-3 w-3 mr-1" />
+                              Mark Paid
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
                   ))}
