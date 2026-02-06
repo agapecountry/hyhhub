@@ -374,6 +374,7 @@ serve(async (req) => {
       });
 
     let insertedCount = 0;
+    let pendingUpdatedCount = 0;
     if (transactionsToInsert.length > 0) {
       // Get existing transaction IDs (including hidden ones) to avoid overwriting or re-inserting
       const txIds = transactionsToInsert.map(t => t.transaction_id);
@@ -392,18 +393,89 @@ serve(async (req) => {
       // Only insert NEW transactions, never update existing ones
       const newTransactions = transactionsToInsert.filter(t => !existingIds.has(t.transaction_id));
       
-      console.log(`Found ${existingIds.size} existing transactions, inserting ${newTransactions.length} new transactions only...`);
+      // Handle pending->cleared transitions:
+      // When a pending transaction clears, Plaid gives it a new transaction_id
+      // and references the old pending transaction_id in pending_transaction_id.
+      // We need to update the existing pending record instead of inserting a duplicate.
+      const trulyNewTransactions = [];
+      for (const txn of newTransactions) {
+        // Find the original Plaid transaction data to check pending_transaction_id
+        const originalTxn = transactions.find(t => t.transaction_id === txn.transaction_id);
+        const pendingTxnId = originalTxn?.pending_transaction_id;
+        
+        if (pendingTxnId && !txn.pending) {
+          // This is a cleared version of a previously pending transaction
+          // Update the existing pending record instead of inserting a new one
+          const { data: pendingRecord } = await supabaseClient
+            .from('plaid_transactions')
+            .select('id')
+            .eq('transaction_id', pendingTxnId)
+            .maybeSingle();
+          
+          if (pendingRecord) {
+            // Update the pending transaction: new transaction_id, mark as not pending, mark cleared
+            const { error: updateError } = await supabaseClient
+              .from('plaid_transactions')
+              .update({
+                transaction_id: txn.transaction_id,
+                pending: false,
+                is_cleared: true,
+                amount: txn.amount,
+                date: txn.date,
+                name: txn.name,
+                merchant_name: txn.merchant_name,
+                pending_transaction_id: pendingTxnId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', pendingRecord.id);
+            
+            if (updateError) {
+              console.error(`Error updating pending->cleared for ${pendingTxnId}:`, updateError);
+              trulyNewTransactions.push(txn);
+            } else {
+              pendingUpdatedCount++;
+              console.log(`Updated pending->cleared: ${pendingTxnId} -> ${txn.transaction_id}`);
+            }
+            continue;
+          }
+        }
+        trulyNewTransactions.push(txn);
+      }
       
-      if (newTransactions.length > 0) {
+      console.log(`Found ${existingIds.size} existing, ${pendingUpdatedCount} pending->cleared updates, inserting ${trulyNewTransactions.length} new transactions...`);
+      
+      if (trulyNewTransactions.length > 0) {
         const { error: insertError } = await supabaseClient
           .from('plaid_transactions')
-          .insert(newTransactions);
+          .insert(trulyNewTransactions);
 
         if (insertError) {
           console.error('Error inserting transactions:', insertError);
           throw insertError;
         }
-        insertedCount = newTransactions.length;
+        insertedCount = trulyNewTransactions.length;
+      }
+    }
+    
+    // Mark matched (auto_matched) transactions as cleared
+    // If a Plaid transaction was matched to a bill/debt, it should be considered cleared
+    if (transactionsToInsert.length > 0) {
+      const matchedTxIds = transactionsToInsert
+        .filter(t => !t.pending && (t.bill_id || t.debt_id))
+        .map(t => t.transaction_id);
+      
+      if (matchedTxIds.length > 0) {
+        const { error: clearError } = await supabaseClient
+          .from('plaid_transactions')
+          .update({ is_cleared: true })
+          .in('transaction_id', matchedTxIds)
+          .is('is_cleared', null);
+        
+        if (clearError) {
+          console.error('Error marking matched transactions as cleared:', clearError);
+        } else {
+          console.log(`Marked ${matchedTxIds.length} matched transactions as cleared`);
+        }
       }
     }
 

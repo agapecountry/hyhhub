@@ -159,6 +159,36 @@ async function upsertTransaction(
     }
   }
 
+  // Handle pending->cleared transitions:
+  // When a pending transaction clears, Plaid gives it a new transaction_id
+  // and references the old pending ID in pending_transaction_id.
+  // Update the existing pending record instead of inserting a duplicate.
+  if (transaction.pending_transaction_id && !transaction.pending) {
+    const { data: pendingRecord } = await supabase
+      .from('plaid_transactions')
+      .select('id')
+      .eq('transaction_id', transaction.pending_transaction_id)
+      .maybeSingle();
+
+    if (pendingRecord) {
+      await supabase
+        .from('plaid_transactions')
+        .update({
+          transaction_id: transaction.transaction_id,
+          pending: false,
+          is_cleared: true,
+          amount: transaction.amount,
+          date: transaction.date,
+          name: transaction.name,
+          merchant_name: transaction.merchant_name || null,
+          pending_transaction_id: transaction.pending_transaction_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', pendingRecord.id);
+      return;
+    }
+  }
+
   const transactionData = {
     plaid_account_id: plaidAccountId,
     transaction_id: transaction.transaction_id,
@@ -169,6 +199,7 @@ async function upsertTransaction(
     merchant_name: transaction.merchant_name || null,
     category: transaction.category ? JSON.stringify(transaction.category) : '[]',
     pending: transaction.pending,
+    is_cleared: !transaction.pending,
     iso_currency_code: transaction.iso_currency_code || null,
     unofficial_currency_code: transaction.unofficial_currency_code || null,
     authorized_date: transaction.authorized_date || null,
