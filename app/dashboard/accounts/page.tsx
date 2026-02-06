@@ -33,6 +33,7 @@ interface ManualAccount {
   institution: string | null;
   account_number_last4: string | null;
   balance: number;
+  working_balance?: number;
   color: string;
   is_active: boolean;
   source: 'manual';
@@ -47,6 +48,8 @@ interface PlaidAccount {
   balance?: number;
   current_balance: number;
   available_balance: number | null;
+  initial_balance?: number;
+  working_balance?: number;
   is_active: boolean;
   plaid_item_id: string;
   source: 'plaid';
@@ -913,7 +916,7 @@ export default function AccountsPage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <div className="text-2xl font-bold">
-                            {formatCurrency(account.source === 'plaid' ? (account.current_balance || 0) : (account.balance || 0))}
+                            {formatCurrency(account.working_balance ?? 0)}
                           </div>
                           <div className="text-xs text-muted-foreground capitalize">
                             {account.type}

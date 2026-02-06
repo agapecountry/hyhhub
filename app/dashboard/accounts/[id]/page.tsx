@@ -440,6 +440,14 @@ export default function AccountDetailPage() {
       });
 
       setTransactions(allTransactions);
+
+      // Persist working_balance to the database so the accounts home page can use it
+      const ib = accountData.plaid_item_id
+        ? (accountData.initial_balance ?? 0)
+        : (accountData.balance ?? 0);
+      const wb = ib + allTransactions.reduce((sum: number, t: any) => sum + t.amount, 0);
+      const table = accountData.plaid_item_id ? 'plaid_accounts' : 'accounts';
+      await supabase.from(table).update({ working_balance: wb }).eq('id', accountId);
     } catch (error: any) {
       console.error('Error loading account data:', error);
       toast({
